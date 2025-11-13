@@ -925,10 +925,12 @@ namespace NinjaTrader.NinjaScript.Indicators
                 InitializeCurrentLineFromReplay(zzLTF);
                 InitializeCurrentLineFromReplay(zzHTF);
 
-                // Print($"Training complete! Now using optimized parameters:");
-                // Print($"  LTF Lines: {zzLTF.Lines.Count}, HTF Lines: {zzHTF.Lines.Count}");
-                // Print($"  LTF: Y1={zzLTF.Y1Price:F2}, Y2={zzLTF.Y2Price:F2}, CurrentLine={(zzLTF.CurrentLine != null ? "Initialized" : "NULL")}");
-                // Print($"  HTF: Y1={zzHTF.Y1Price:F2}, Y2={zzHTF.Y2Price:F2}, CurrentLine={(zzHTF.CurrentLine != null ? "Initialized" : "NULL")}");
+                Print($"Training complete! Now using optimized parameters:");
+                Print($"  LTF Lines: {zzLTF.Lines.Count}, HTF Lines: {zzHTF.Lines.Count}");
+                Print($"  LTF: Y1={zzLTF.Y1Price:F2}, Y2={zzLTF.Y2Price:F2}, CurrentLine={(zzLTF.CurrentLine != null ? "Initialized" : "NULL")}");
+                Print($"  HTF: Y1={zzHTF.Y1Price:F2}, Y2={zzHTF.Y2Price:F2}, CurrentLine={(zzHTF.CurrentLine != null ? "Initialized" : "NULL")}");
+                Print($"  Configured: ltfBarsInProgress={ltfBarsInProgress}, htfBarsInProgress={htfBarsInProgress}");
+                Print($"  Best ATR: LTF={bestATRLTF:F4}, HTF={bestATRHTF:F4}, Same?={(bestATRLTF == bestATRHTF)}");
             }
 
             // ========================================================================
@@ -3483,12 +3485,12 @@ namespace NinjaTrader.NinjaScript.Indicators
             zzHTF.Point = htfPoint;
             zzHTF.TimeP = htfTimeP;
 
-            // Print($"[ReplayHistory] Complete! LTF: {zzLTF.Lines.Count} lines, HTF: {zzHTF.Lines.Count} lines");
-            // Print($"[ReplayHistory] LTF Breakout Lines: {zzLTF.BreakoutLines.Count}, HTF Breakout Lines: {zzHTF.BreakoutLines.Count}");
-            // Print($"[ReplayHistory] LTF==HTF? {ltfBarsInProgress == htfBarsInProgress}, bestATRLTF={bestATRLTF:F4}, bestATRHTF={bestATRHTF:F4}, Same? {bestATRLTF == bestATRHTF}");
-            // Print($"[ReplayHistory] atrArrLTF.Count={atrArrLTF.Count}, atrArrHTF.Count={atrArrHTF.Count}, Same size? {atrArrLTF.Count == atrArrHTF.Count}");
-            // Print($"[ReplayHistory] LTF Breakout Up: {zzLTF.BreakoutPointUp:F2}, Dn: {zzLTF.BreakoutPointDn:F2}");
-            // Print($"[ReplayHistory] HTF Breakout Up: {zzHTF.BreakoutPointUp:F2}, Dn: {zzHTF.BreakoutPointDn:F2}");
+            Print($"[ReplayHistory] Complete! LTF: {zzLTF.Lines.Count} lines, HTF: {zzHTF.Lines.Count} lines");
+            Print($"[ReplayHistory] LTF Breakout Lines: {zzLTF.BreakoutLines.Count}, HTF Breakout Lines: {zzHTF.BreakoutLines.Count}");
+            Print($"[ReplayHistory] LTF==HTF? {ltfBarsInProgress == htfBarsInProgress}, bestATRLTF={bestATRLTF:F4}, bestATRHTF={bestATRHTF:F4}, Same? {bestATRLTF == bestATRHTF}");
+            Print($"[ReplayHistory] atrArrLTF.Count={atrArrLTF.Count}, atrArrHTF.Count={atrArrHTF.Count}, Same size? {atrArrLTF.Count == atrArrHTF.Count}");
+            Print($"[ReplayHistory] LTF Breakout Up: {zzLTF.BreakoutPointUp:F2}, Dn: {zzLTF.BreakoutPointDn:F2}");
+            Print($"[ReplayHistory] HTF Breakout Up: {zzHTF.BreakoutPointUp:F2}, Dn: {zzHTF.BreakoutPointDn:F2}");
 
             // CRITICAL FIX: Now re-test ALL trades using ONLY the best parameters
             // This is what PineScript does - it rebuilds the ZigZag AND re-tests trades
