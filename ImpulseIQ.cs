@@ -2804,12 +2804,13 @@ namespace NinjaTrader.NinjaScript.Indicators
                              $"Longs PF: {tablePF:F2} WR: {longWinRate:F1}%\n" +
                              $"Shorts PF: {tablePFS:F2} WR: {shortWinRate:F1}%\n" +
                              $"Trades: L{longTrades}/S{shortTrades}\n" +
-                             $"Best: LTF={bestATRLTF:F1} HTF={bestATRHTF:F1}";
+                             $"BestL: LTF={bestATRLTF:F1} HTF={bestATRHTF:F1}\n" +
+                             $"BestS: LTF={bestATRshortltf:F1} HTF={bestATRshorthtf:F1}";
 
-            // Print($"[SelectBestParameters] PF={performanceText:F2}%");
-            // Print($"[SelectBestParameters] BEST LONG: PF={tablePF:F2}, Params={stringArr[bestLongsIndex]}, Trades={longTrades},lONGwiNS = {longWins} WinRate={longWinRate:F1}%");
-            // Print($"[SelectBestParameters] BEST SHORT: PF={tablePFS:F2}, Params={stringArr[bestShortsIndex]}, Trades={shortTrades}, Wins={shortWins}, WinRate={shortWinRate:F1}%");
-            // Print($"[SelectBestParameters] *** COMPARE WITH PINESCRIPT: Are these parameters the same? ***");
+            Print($"[SelectBestParameters] atrArrLTF.Count={atrArrLTF.Count}, atrArrHTF.Count={atrArrHTF.Count}");
+            Print($"[SelectBestParameters] BEST LONG: PF={tablePF:F2}, Params={stringArr[bestLongsIndex]}, Trades={longTrades}, Wins={longWins}, WinRate={longWinRate:F1}%");
+            Print($"[SelectBestParameters] BEST SHORT: PF={tablePFS:F2}, Params={stringArr[bestShortsIndex]}, Trades={shortTrades}, Wins={shortWins}, WinRate={shortWinRate:F1}%");
+            Print($"[SelectBestParameters] *** COMPARE WITH PINESCRIPT: Are these parameters the same? ***");
 
             // DETAILED OPTIMIZATION LOGGING
             // Print($"[OPTIMIZATION] Best combo: {stringArr[bestLongsIndex]}, OptimPF={tablePF:F4}, OptimProfit={PFprofitArr[bestLongsIndex]:F2}, OptimLoss={PFlossArr[bestLongsIndex]:F2}, OptimWins={winsArr[bestLongsIndex]}, OptimTrades={tradesArr[bestLongsIndex]}");
@@ -3518,7 +3519,8 @@ namespace NinjaTrader.NinjaScript.Indicators
                              $"Longs PF: {replayPF:F2} WR: {replayWinRate:F1}%\n" +
                              $"Shorts PF: {shortPF:F2} WR: {shortWinRate:F1}%\n" +
                              $"Trades: L{replayTrades}/S{shortTrades}\n" +
-                             $"Best: LTF={bestATRLTF:F1} HTF={bestATRHTF:F1}";
+                             $"BestL: LTF={bestATRLTF:F1} HTF={bestATRHTF:F1}\n" +
+                             $"BestS: LTF={bestATRshortltf:F1} HTF={bestATRshorthtf:F1}";
         }
 
         /// <summary>
