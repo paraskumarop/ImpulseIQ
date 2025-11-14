@@ -743,23 +743,29 @@ namespace NinjaTrader.NinjaScript.Indicators
             // Collect ALL data on EVERY PRIMARY bar (matches PineScript exactly)
             // CRITICAL: PineScript collects data on every bar, stores isLastBar flag,
             // then only tests ENTRIES on bars where isLastBar==true during optimization
-            if (BarsInProgress == 0 && CurrentBar >= 14)
+            // CRITICAL FIX: Do NOT skip bars due to ATR warmup - collect from first bar like PineScript!
+            if (BarsInProgress == 0 && CurrentBar >= 0)
             {
-                if (CurrentBars[ltfBarsInProgress] < 14 || CurrentBars[htfBarsInProgress] < 14)
-                    return;
+                // REMOVED: Do NOT skip bars waiting for LTF/HTF warmup - PineScript doesn't do this!
+                // PineScript uses request.security() which returns values even during warmup
+                // The missing 253 bars was caused by waiting for HTF to reach 14 bars
+                // if (CurrentBars[ltfBarsInProgress] < 14 || CurrentBars[htfBarsInProgress] < 14)
+                //     return;
+                //
+                // REMOVED: Do NOT skip bars with zero ATR - PineScript collects them anyway
+                // if (lastLtfATR == 0 || lastHtfATR == 0)
+                //     return;
 
-                if (lastLtfATR == 0 || lastHtfATR == 0)
-                    return; // Skip until we have valid ATR values
-
-                // Collect LTF data
+                // Collect LTF data - use current values even if ATR is warming up
                 double ltfClose = Closes[ltfBarsInProgress][0];
-                double ltfClosePrev = CurrentBars[ltfBarsInProgress] >= 2 ? Closes[ltfBarsInProgress][1] : ltfClose;
+                double ltfClosePrev = CurrentBars[ltfBarsInProgress] >= 1 ? Closes[ltfBarsInProgress][1] : ltfClose;
                 ltfCloArr.Add(ltfClose);
                 ltfCloArr1.Add(ltfClosePrev);
 
-                // Collect ATR values
-                double ltfATRValue = lastLtfATR;
-                double htfATRValue = lastHtfATR;
+                // Collect ATR values - use whatever we have (even if 0 during warmup)
+                // PineScript collects ATR values from request.security() even during warmup period
+                double ltfATRValue = (lastLtfATR > 0) ? lastLtfATR : 0.01; // Use tiny default if zero
+                double htfATRValue = (lastHtfATR > 0) ? lastHtfATR : 0.01; // Use tiny default if zero
                 atrArrLTF.Add(ltfATRValue);
                 atrArrHTF.Add(htfATRValue);
 
