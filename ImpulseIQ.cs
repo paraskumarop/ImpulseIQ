@@ -2047,6 +2047,12 @@ namespace NinjaTrader.NinjaScript.Indicators
                     // This is the Y1 (pivot high) that price must cross for long entries
                     getBreakoutPointUpArr[index] = point;
 
+                    // DEBUG: Track breakout points for 4.0_5.0 (index 1611)
+                    if (index == 1611)
+                    {
+                        Print($"[BREAKOUT 4.0_5.0] UP pivot formed at {point:F2}, ATR={atr:F2}, Dir: 1→-1");
+                    }
+
                     y1 = point;
                     y2 = low;
                     dir = -1;
@@ -2073,6 +2079,12 @@ namespace NinjaTrader.NinjaScript.Indicators
                     // CRITICAL: Store breakout point BEFORE changing state
                     // This is the Y1 (pivot low) that price must cross for short entries
                     getBreakoutPointDnArr[index] = point;
+
+                    // DEBUG: Track breakout points for 4.0_5.0 (index 1611)
+                    if (index == 1611)
+                    {
+                        Print($"[BREAKOUT 4.0_5.0] DN pivot formed at {point:F2}, ATR={atr:F2}, Dir: -1→1");
+                    }
 
                     y1 = point;
                     y2 = high;
