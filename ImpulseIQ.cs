@@ -155,6 +155,9 @@ namespace NinjaTrader.NinjaScript.Indicators
         // Store latest ATR values for cross-BarsInProgress access
         private double lastLtfATR = 0;
         private double lastHtfATR = 0;
+        private double firstValidLtfATR = 0;  // Track first valid ATR for backfilling
+        private double firstValidHtfATR = 0;  // Track first valid ATR for backfilling
+        private bool hasBackfilledATR = false; // Track if we've backfilled
 
         // Manual ATR calculation for multi-timeframe
         private List<double> ltfTrueRanges = new List<double>();
@@ -726,6 +729,13 @@ namespace NinjaTrader.NinjaScript.Indicators
             {
                 lastLtfATR = atrOnLtf[0];
 
+                // Capture first valid ATR for backfilling
+                if (firstValidLtfATR == 0)
+                {
+                    firstValidLtfATR = lastLtfATR;
+                    Print($"[ATR BACKFILL] First valid LTF ATR captured: {firstValidLtfATR:F2} at bar {CurrentBars[ltfBarsInProgress]}");
+                }
+
                 // Debug: Print ATR values to verify they're correct
                 // if (CurrentBars[ltfBarsInProgress] <= 20 || (Time[0].Hour == 12 && Time[0].Minute == 55))
                 //     Print($"[{Time[0]:yyyy-MM-dd HH:mm:ss}]: LTF_ATR={lastLtfATR:F1} (BIP={BarsInProgress}, Bar={CurrentBars[ltfBarsInProgress]})");
@@ -734,6 +744,13 @@ namespace NinjaTrader.NinjaScript.Indicators
             if (BarsInProgress == htfBarsInProgress && atrOnHtf != null && atrOnHtf[0] > 0)
             {
                 lastHtfATR = atrOnHtf[0];
+
+                // Capture first valid ATR for backfilling
+                if (firstValidHtfATR == 0)
+                {
+                    firstValidHtfATR = lastHtfATR;
+                    Print($"[ATR BACKFILL] First valid HTF ATR captured: {firstValidHtfATR:F2} at bar {CurrentBars[htfBarsInProgress]}");
+                }
 
                 // Debug: Print ATR values to verify they're correct
                 // if (CurrentBars[htfBarsInProgress] <= 20 || (Time[0].Hour == 12 && Time[0].Minute == 55))
@@ -762,10 +779,14 @@ namespace NinjaTrader.NinjaScript.Indicators
                 ltfCloArr.Add(ltfClose);
                 ltfCloArr1.Add(ltfClosePrev);
 
-                // Collect ATR values - use whatever we have (even if 0 during warmup)
-                // PineScript collects ATR values from request.security() even during warmup period
-                double ltfATRValue = (lastLtfATR > 0) ? lastLtfATR : 0.01; // Use tiny default if zero
-                double htfATRValue = (lastHtfATR > 0) ? lastHtfATR : 0.01; // Use tiny default if zero
+                // Collect ATR values - use first valid ATR for warmup bars (matches PineScript behavior)
+                // CRITICAL: PineScript's request.security() returns valid ATR from first bar
+                // because it pulls from a timeframe that already has history
+                // We mimic this by using the first valid ATR value we captured
+                double ltfATRValue = (lastLtfATR > 0) ? lastLtfATR :
+                                     (firstValidLtfATR > 0) ? firstValidLtfATR : 0.01;
+                double htfATRValue = (lastHtfATR > 0) ? lastHtfATR :
+                                     (firstValidHtfATR > 0) ? firstValidHtfATR : 0.01;
                 atrArrLTF.Add(ltfATRValue);
                 atrArrHTF.Add(htfATRValue);
 
@@ -892,8 +913,33 @@ namespace NinjaTrader.NinjaScript.Indicators
                 Print($"[TRAINING TRIGGERED] Bars collected: {closeArrEnd.Count}, State: {State}, CurrentBar: {CurrentBar}");
                 Print($"[TRAINING] isLastBarArray.Count={isLastBarArray.Count}, true count={isLastBarArray.Count(x => x)}");
 
+                // CRITICAL FIX: Backfill zero ATR values with first valid ATR (matches PineScript behavior)
+                // PineScript's request.security() returns valid ATR from bar 0, but NinjaTrader's ATR
+                // needs 14 bars to warm up, leaving zeros in the array for early bars
+                if (!hasBackfilledATR && firstValidLtfATR > 0 && firstValidHtfATR > 0)
+                {
+                    int backfilledLTF = 0;
+                    int backfilledHTF = 0;
+                    for (int i = 0; i < atrArrLTF.Count; i++)
+                    {
+                        if (atrArrLTF[i] < 1.0)  // Replace any suspiciously low values (< 1.0)
+                        {
+                            atrArrLTF[i] = firstValidLtfATR;
+                            backfilledLTF++;
+                        }
+                        if (atrArrHTF[i] < 1.0)  // Replace any suspiciously low values (< 1.0)
+                        {
+                            atrArrHTF[i] = firstValidHtfATR;
+                            backfilledHTF++;
+                        }
+                    }
+                    Print($"[ATR BACKFILL] Replaced {backfilledLTF} LTF zeros with {firstValidLtfATR:F2}");
+                    Print($"[ATR BACKFILL] Replaced {backfilledHTF} HTF zeros with {firstValidHtfATR:F2}");
+                    hasBackfilledATR = true;
+                }
+
                 // We've transitioned to real-time - optimization training is complete
-              
+
                 // Run optimization loop on ALL historical data (like PineScript barstate.islastconfirmedhistory)
                 for (int barIndex = 0; barIndex < closeArrEnd.Count; barIndex++)
                 {
