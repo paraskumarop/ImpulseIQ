@@ -709,11 +709,12 @@ namespace NinjaTrader.NinjaScript.Indicators
 
         protected override void OnBarUpdate()
         {
-            // STRATEGY: Collect data from bar 0 to match PineScript, but protect ATR access
-            // - Data collection starts at bar 0 (line 771: CurrentBar >= 0)
+            // STRATEGY: Collect data from bar 0 to match PineScript, but protect series access
+            // - Data collection starts at bar 0 (line 774: CurrentBar >= 0)
+            // - Multi-series safety check (line 779: CurrentBars[ltf/htf] >= 0) prevents access before loaded
             // - ATR indicators accessed only after 20 bars (lines 731, 749: CurrentBars >= 20)
             // - First valid ATR captured only when > 1.0 (lines 738, 756: prevents capturing zeros)
-            // - Early bars use fallback ATR of 0.01 (lines 793-796)
+            // - Early bars use fallback ATR of 0.01 (lines 788-791)
             // This prevents array index errors while matching PineScript's bar count
 
             // IMPORTANT: Handle cases where LTF and/or HTF use different BarsInProgress indices
@@ -773,15 +774,11 @@ namespace NinjaTrader.NinjaScript.Indicators
             // CRITICAL FIX: Do NOT skip bars due to ATR warmup - collect from first bar like PineScript!
             if (BarsInProgress == 0 && CurrentBar >= 0)
             {
-                // REMOVED: Do NOT skip bars waiting for LTF/HTF warmup - PineScript doesn't do this!
-                // PineScript uses request.security() which returns values even during warmup
-                // The missing 253 bars was caused by waiting for HTF to reach 14 bars
-                // if (CurrentBars[ltfBarsInProgress] < 14 || CurrentBars[htfBarsInProgress] < 14)
-                //     return;
-                //
-                // REMOVED: Do NOT skip bars with zero ATR - PineScript collects them anyway
-                // if (lastLtfATR == 0 || lastHtfATR == 0)
-                //     return;
+                // CRITICAL SAFETY CHECK: Ensure LTF and HTF series have at least 1 bar before accessing
+                // Multi-timeframe data loads asynchronously, so we must wait for all series to be available
+                // This prevents "accessing a series [barsAgo] with value that is invalid" error
+                if (CurrentBars[ltfBarsInProgress] < 0 || CurrentBars[htfBarsInProgress] < 0)
+                    return;
 
                 // Collect LTF data - use current values even if ATR is warming up
                 double ltfClose = Closes[ltfBarsInProgress][0];
