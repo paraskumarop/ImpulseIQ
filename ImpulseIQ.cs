@@ -655,6 +655,12 @@ namespace NinjaTrader.NinjaScript.Indicators
                     string paramLabel = $"{zzCurrATR[i]:F1}_{zzHTFATR[i]:F1}_{atrPTarr[x]:F1}_{atrTarr[x]:F1}";
                     stringArr.Add(paramLabel);
 
+                    // Debug: Verify index 1611 is 4.0_5.0
+                    if (stringArr.Count - 1 == 1611)
+                    {
+                        Print($"[PARAM DEBUG] Index 1611 = {paramLabel}");
+                    }
+
                     // Initialize performance tracking arrays for this combination
                     perfArr.Add(0);
                     entryArr.Add(0);
@@ -923,6 +929,44 @@ namespace NinjaTrader.NinjaScript.Indicators
             {
                 Print($"[TRAINING TRIGGERED] Bars collected: {closeArrEnd.Count}, State: {State}, CurrentBar: {CurrentBar}");
                 Print($"[TRAINING] isLastBarArray.Count={isLastBarArray.Count}, true count={isLastBarArray.Count(x => x)}");
+
+                // Analyze time range to detect extended hours data
+                if (timeArrEnd.Count > 0)
+                {
+                    DateTime firstBar = timeArrEnd[0];
+                    DateTime lastBar = timeArrEnd[timeArrEnd.Count - 1];
+                    Print($"[TIME RANGE] First bar: {firstBar:yyyy-MM-dd HH:mm}, Last bar: {lastBar:yyyy-MM-dd HH:mm}");
+
+                    // Count RTH vs Extended Hours bars (RTH = 09:30-16:00 ET)
+                    int rthBars = 0;
+                    int extendedBars = 0;
+                    double rthATRSum = 0;
+                    double extendedATRSum = 0;
+
+                    for (int i = 0; i < timeArrEnd.Count; i++)
+                    {
+                        TimeSpan barTime = timeArrEnd[i].TimeOfDay;
+                        bool isRTH = barTime >= new TimeSpan(9, 30, 0) && barTime < new TimeSpan(16, 0, 0);
+
+                        if (isRTH)
+                        {
+                            rthBars++;
+                            if (i < atrArrLTF.Count) rthATRSum += atrArrLTF[i];
+                        }
+                        else
+                        {
+                            extendedBars++;
+                            if (i < atrArrLTF.Count) extendedATRSum += atrArrLTF[i];
+                        }
+                    }
+
+                    double avgRthATR = rthBars > 0 ? rthATRSum / rthBars : 0;
+                    double avgExtendedATR = extendedBars > 0 ? extendedATRSum / extendedBars : 0;
+
+                    Print($"[DATA ANALYSIS] RTH bars: {rthBars}, Extended hours bars: {extendedBars}, Total: {timeArrEnd.Count}");
+                    Print($"[DATA ANALYSIS] Avg RTH ATR: {avgRthATR:F2}, Avg Extended ATR: {avgExtendedATR:F2}");
+                    Print($"[DATA ANALYSIS] PineScript expects ~5344-5355 bars. We have {timeArrEnd.Count} bars. Difference: {timeArrEnd.Count - 5344}");
+                }
 
                 // CRITICAL FIX: Backfill zero ATR values with first valid ATR (matches PineScript behavior)
                 // PineScript's request.security() returns valid ATR from bar 0, but NinjaTrader's ATR
@@ -2937,6 +2981,24 @@ namespace NinjaTrader.NinjaScript.Indicators
             Print($"[SHORT TOP 5]:");
             foreach (var item in topShorts)
                 Print($"  #{item.Index}: PF={item.PF:F2}, Params={item.Params}, Trades={item.Trades}");
+
+            // DEBUG: Check 4.0_5.0 specifically (PineScript's best LONG param)
+            // Find all indices that start with "4.0_5.0_"
+            var param_4_5 = pfLongs.Select((pf, idx) => new { PF = pf, Index = idx, Params = stringArr[idx], Trades = tradesArr[idx], Wins = winsArr[idx] })
+                .Where(x => x.Params.StartsWith("4.0_5.0_"))
+                .OrderByDescending(x => x.PF)
+                .ToList();
+
+            if (param_4_5.Count > 0)
+            {
+                Print($"[4.0_5.0 ANALYSIS] Found {param_4_5.Count} combinations with LTF=4.0, HTF=5.0:");
+                foreach (var item in param_4_5.Take(5))
+                {
+                    double winRate = item.Trades > 0 ? (double)item.Wins / item.Trades * 100 : 0;
+                    Print($"  #{item.Index}: {item.Params}, PF={item.PF:F2}, Trades={item.Trades}, Wins={item.Wins}, WR={winRate:F1}%");
+                }
+                Print($"[4.0_5.0 ANALYSIS] PineScript expects 4.0_5.0 with PF=15.60 as best LONG. Why is ours different?");
+            }
 
             Print($"[SelectBestParameters] *** COMPARE WITH PINESCRIPT: Are these parameters the same? ***");
 
@@ -5133,7 +5195,50 @@ namespace NinjaTrader.NinjaScript.Indicators
                 if (debugDrawCounter < 5)
                     Print($"[DrawProjections] Drew {linesDrawn} lines, Skipped {linesSkipped} old, Total={zz.Lines.Count}");
 
-              
+                // FUTURE PROJECTION: Extend current zigzag trend into the future
+                // This shows where the zigzag might continue based on current direction
+                if (trained && zz.Y2Price != 0)
+                {
+                    // Get current time and calculate future time (project 20 bars ahead)
+                    DateTime currentTime = Time[0];
+                    TimeSpan barSpan = TimeSpan.FromMinutes(5); // 5-minute bars
+                    DateTime futureTime = currentTime.AddMinutes(100); // ~20 bars ahead
+
+                    // Get current Y2 position (last pivot)
+                    double currentPrice = zz.Y2Price;
+
+                    // Project forward following current trend
+                    // If Direction == 1 (uptrend), project upward
+                    // If Direction == -1 (downtrend), project downward
+                    double projectionSlope = (zz.Y2Price - zz.Y1Price) / 10.0; // Gentle continuation
+                    double futurePrice = currentPrice + (projectionSlope * 2); // Project 2x the last move
+
+                    // Get screen coordinates
+                    int xCurrent = chartControl.GetXByTime(currentTime);
+                    int xFuture = chartControl.GetXByTime(futureTime);
+                    float yCurrent = chartScale.GetYByValue(currentPrice);
+                    float yFuture = chartScale.GetYByValue(futurePrice);
+
+                    // Only draw if future point is on screen
+                    if (xFuture > 0 && xFuture < chartControl.ActualWidth)
+                    {
+                        // Draw brighter projection line into future
+                        var futureColor = zz.Direction == 1 ?
+                            new SharpDX.Color(116, 255, 188, 255) :  // Bright green
+                            new SharpDX.Color(255, 116, 116, 255);   // Bright red
+
+                        using (var futureBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, futureColor))
+                        {
+                            RenderTarget.DrawLine(new Vector2(xCurrent, yCurrent), new Vector2(xFuture, yFuture),
+                                futureBrush, 3, style);
+
+                            if (debugDrawCounter < 5)
+                                Print($"[Future Projection] From {currentTime:HH:mm} @ {currentPrice:F2} → {futureTime:HH:mm} @ {futurePrice:F2}, Dir={zz.Direction}");
+                        }
+                    }
+                }
+
+
             }
         }
 
