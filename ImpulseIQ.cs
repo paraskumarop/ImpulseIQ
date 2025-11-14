@@ -790,6 +790,10 @@ namespace NinjaTrader.NinjaScript.Indicators
                 // Store isLastBar flag for this bar (used during optimization)
                 isLastBarArray.Add(isNewLTFBar);
 
+                // Debug first 5 and last 5 bars collected
+                if (ltfCloArr.Count <= 5 || ltfCloArr.Count >= 5325)
+                    Print($"[DATA COLLECT] Bar #{ltfCloArr.Count}, CurrentBar={CurrentBar}, Time={Time[0]:HH:mm}, isLastBar={isNewLTFBar}, ltfATR={ltfATRValue:F2}, htfATR={htfATRValue:F2}");
+
                 // Limit historical arrays to reasonable size (keep last 30,000 bars max)
                 if (ltfCloArr.Count > 30000)
                 {
@@ -885,7 +889,8 @@ namespace NinjaTrader.NinjaScript.Indicators
 
             if (!trained && shouldTrain)
             {
-                // Print($"[TRAINING TRIGGERED] Bars collected: {closeArrEnd.Count}, State: {State}, CurrentBar: {CurrentBar}");
+                Print($"[TRAINING TRIGGERED] Bars collected: {closeArrEnd.Count}, State: {State}, CurrentBar: {CurrentBar}");
+                Print($"[TRAINING] isLastBarArray.Count={isLastBarArray.Count}, true count={isLastBarArray.Count(x => x)}");
 
                 // We've transitioned to real-time - optimization training is complete
               
@@ -2816,6 +2821,21 @@ namespace NinjaTrader.NinjaScript.Indicators
             Print($"[SelectBestParameters] atrArrLTF.Count={atrArrLTF.Count}, atrArrHTF.Count={atrArrHTF.Count}");
             Print($"[SelectBestParameters] BEST LONG: PF={tablePF:F2}, Params={stringArr[bestLongsIndex]}, Trades={longTrades}, Wins={longWins}, WinRate={longWinRate:F1}%");
             Print($"[SelectBestParameters] BEST SHORT: PF={tablePFS:F2}, Params={stringArr[bestShortsIndex]}, Trades={shortTrades}, Wins={shortWins}, WinRate={shortWinRate:F1}%");
+
+            // Show top 5 LONG combinations to understand ranking
+            var topLongs = pfLongs.Select((pf, idx) => new { PF = pf, Index = idx, Params = stringArr[idx], Trades = tradesArr[idx] })
+                .OrderByDescending(x => x.PF).Take(5).ToList();
+            Print($"[LONG TOP 5]:");
+            foreach (var item in topLongs)
+                Print($"  #{item.Index}: PF={item.PF:F2}, Params={item.Params}, Trades={item.Trades}");
+
+            // Show top 5 SHORT combinations
+            var topShorts = pfShorts.Select((pf, idx) => new { PF = pf, Index = idx, Params = stringArr[idx], Trades = tradesArrS[idx] })
+                .OrderByDescending(x => x.PF).Take(5).ToList();
+            Print($"[SHORT TOP 5]:");
+            foreach (var item in topShorts)
+                Print($"  #{item.Index}: PF={item.PF:F2}, Params={item.Params}, Trades={item.Trades}");
+
             Print($"[SelectBestParameters] *** COMPARE WITH PINESCRIPT: Are these parameters the same? ***");
 
             // DETAILED OPTIMIZATION LOGGING
