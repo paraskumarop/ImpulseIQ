@@ -5195,57 +5195,78 @@ namespace NinjaTrader.NinjaScript.Indicators
                 if (debugDrawCounter < 5)
                     Print($"[DrawProjections] Drew {linesDrawn} lines, Skipped {linesSkipped} old, Total={zz.Lines.Count}");
 
-                // FUTURE PROJECTION: Extend current zigzag trend into the future
-                // This shows where the zigzag might continue based on current direction
-                if (trained && zz.Y2Price != 0 && zz.Y1Price != 0)
+                // POINT OF CHANGE PROJECTION (matches PineScript lines 2904-2916 and 2980-2992)
+                // Shows the predetermined breakout level where the zigzag will reverse
+                // This is what makes it a "minimal lag" indicator - the reversal point is known in advance
+                if (trained && zz.Y2Price != 0 && zz.CurrentLine != null)
                 {
-                    // Get last pivot point (Y2) as starting point
-                    double startPrice = zz.Y2Price;
+                    // Get current pivot point (Y2 - the developing pivot)
+                    double pivotPrice = zz.Y2Price;
+                    DateTime pivotTime = zz.CurrentLine.X2;
 
-                    // Get last zigzag line's X2 time (when the last pivot was formed)
-                    DateTime startTime;
-                    if (zz.Lines.Count > 0)
+                    // Get ATR for this zigzag (LTF or HTF)
+                    double atrValue = barsInProgress == 1 ?
+                        (bestATRLTF * (lastLtfATR > 0 ? lastLtfATR : 1.0)) :
+                        (bestATRHTF * (lastHtfATR > 0 ? lastHtfATR : 1.0));
+
+                    // Calculate breakout level based on current direction
+                    // PineScript: If dir==1 (uptrend), breakout is at "point - atr" (downside reversal)
+                    //            If dir==-1 (downtrend), breakout is at "point + atr" (upside reversal)
+                    double breakoutLevel;
+                    SharpDX.Color projectionColor;
+
+                    if (zz.Direction == 1)  // Uptrend - show downside breakout level
                     {
-                        startTime = zz.Lines[zz.Lines.Count - 1].X2;
+                        breakoutLevel = pivotPrice - atrValue;
+                        projectionColor = new SharpDX.Color(255, 116, 116, 255);  // Red for downside reversal
                     }
-                    else
+                    else  // Downtrend - show upside breakout level
                     {
-                        startTime = Time[0];
+                        breakoutLevel = pivotPrice + atrValue;
+                        projectionColor = new SharpDX.Color(116, 255, 188, 255);  // Green for upside reversal
                     }
-
-                    // Get the right edge of the visible chart
-                    int chartWidth = (int)chartControl.ActualWidth;
-                    DateTime rightEdgeTime = chartControl.GetTimeByX(chartWidth - 10); // 10px from edge
-
-                    // Calculate projection slope based on last pivot move
-                    // Use a gentle slope: (Y2 - Y1) over the time it took to form
-                    double priceMove = zz.Y2Price - zz.Y1Price;
-                    double projectionSlope = priceMove * 0.3; // Project 30% of the last move
-
-                    // Calculate projected price at right edge
-                    double projectedPrice = startPrice + projectionSlope;
 
                     // Get screen coordinates
-                    int xStart = chartControl.GetXByTime(startTime);
-                    int xEnd = chartWidth - 10; // Near right edge
-                    float yStart = chartScale.GetYByValue(startPrice);
-                    float yEnd = chartScale.GetYByValue(projectedPrice);
+                    DateTime currentTime = Time[0];
+                    int chartWidth = (int)chartControl.ActualWidth;
+                    DateTime futureTime = chartControl.GetTimeByX(chartWidth - 10);
 
-                    // Draw projection line to right edge of screen
-                    var futureColor = zz.Direction == 1 ?
-                        new SharpDX.Color(116, 255, 188, 255) :  // Bright green for uptrend
-                        new SharpDX.Color(255, 116, 116, 255);   // Bright red for downtrend
+                    int xPivot = chartControl.GetXByTime(pivotTime);
+                    int xCurrent = chartControl.GetXByTime(currentTime);
+                    int xFuture = chartWidth - 10;
+                    float yPivot = chartScale.GetYByValue(pivotPrice);
+                    float yBreakout = chartScale.GetYByValue(breakoutLevel);
 
-                    using (var futureBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, futureColor))
+                    using (var projBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, projectionColor))
                     {
-                        // Draw thicker solid line for future projection (width=4, no dots)
-                        RenderTarget.DrawLine(new Vector2(xStart, yStart), new Vector2(xEnd, yEnd),
-                            futureBrush, 4);
+                        // 1. Draw diagonal line from pivot to breakout level at current time
+                        // PineScript line 2911-2916 (uptrend) or 2987-2992 (downtrend)
+                        RenderTarget.DrawLine(
+                            new Vector2(xPivot, yPivot),
+                            new Vector2(xCurrent, yBreakout),
+                            projBrush, 2, style);
+
+                        // 2. Draw horizontal line at breakout level extending into future
+                        // PineScript line 2904-2909 (uptrend) or 2980-2985 (downtrend)
+                        // Add slight slope for visibility (RangeX/RangeY from PineScript)
+                        double rangeSlope = Math.Abs(breakoutLevel - pivotPrice) * 0.1;
+                        double futureBreakout = zz.Direction == 1 ?
+                            breakoutLevel + rangeSlope :  // Slight upward slope for downside breakout
+                            breakoutLevel - rangeSlope;   // Slight downward slope for upside breakout
+                        float yFutureBreakout = chartScale.GetYByValue(futureBreakout);
+
+                        RenderTarget.DrawLine(
+                            new Vector2(xCurrent, yBreakout),
+                            new Vector2(xFuture, yFutureBreakout),
+                            projBrush, 2, style);
 
                         if (debugDrawCounter < 5)
                         {
-                            Print($"[Future Projection] {(barsInProgress == 1 ? "LTF" : "HTF")} - From {startTime:HH:mm} @ {startPrice:F2} → RightEdge @ {projectedPrice:F2}");
-                            Print($"  Screen coords: X({xStart}→{xEnd}), Y({yStart:F0}→{yEnd:F0}), Dir={zz.Direction}, Slope={projectionSlope:F2}");
+                            string zzType = barsInProgress == 1 ? "LTF" : "HTF";
+                            string direction = zz.Direction == 1 ? "UP" : "DN";
+                            Print($"[Point of Change] {zzType} {direction}trend - Pivot @ {pivotPrice:F2}, Breakout @ {breakoutLevel:F2}, ATR={atrValue:F2}");
+                            Print($"  Diagonal: X({xPivot}→{xCurrent}), Y({yPivot:F0}→{yBreakout:F0})");
+                            Print($"  Horizontal: X({xCurrent}→{xFuture}), Y({yBreakout:F0}→{yFutureBreakout:F0})");
                         }
                     }
                 }
