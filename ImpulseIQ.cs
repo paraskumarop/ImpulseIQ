@@ -709,9 +709,12 @@ namespace NinjaTrader.NinjaScript.Indicators
 
         protected override void OnBarUpdate()
         {
-            // REMOVED: if (CurrentBar < 20) return;
-            // This was skipping the first 20 bars, causing array size mismatch with PineScript
-            // PineScript collects from bar 0, so we must too (with ATR backfill handling zeros)
+            // STRATEGY: Collect data from bar 0 to match PineScript, but protect ATR access
+            // - Data collection starts at bar 0 (line 771: CurrentBar >= 0)
+            // - ATR indicators accessed only after 20 bars (lines 731, 749: CurrentBars >= 20)
+            // - First valid ATR captured only when > 1.0 (lines 738, 756: prevents capturing zeros)
+            // - Early bars use fallback ATR of 0.01 (lines 793-796)
+            // This prevents array index errors while matching PineScript's bar count
 
             // IMPORTANT: Handle cases where LTF and/or HTF use different BarsInProgress indices
             // When both use the same index (e.g., both = 0 for chart timeframe), we need to update both
@@ -727,12 +730,15 @@ namespace NinjaTrader.NinjaScript.Indicators
             // CRITICAL: Store ATR when each TF updates, but collect ALL data on PRIMARY bars
             // ========================================================================
             // Store latest ATR values when each timeframe updates (for real-time access)
-            if (BarsInProgress == ltfBarsInProgress && atrOnLtf != null && atrOnLtf[0] > 0)
+            // CRITICAL: Only access ATR after enough bars for calculation (prevent array index errors)
+            if (BarsInProgress == ltfBarsInProgress && CurrentBars[ltfBarsInProgress] >= 20
+                && atrOnLtf != null && atrOnLtf[0] > 0)
             {
                 lastLtfATR = atrOnLtf[0];
 
-                // Capture first valid ATR for backfilling
-                if (firstValidLtfATR == 0)
+                // Capture first valid ATR for backfilling (only capture realistic values > 1.0)
+                // This prevents capturing near-zero values during ATR warmup period
+                if (firstValidLtfATR == 0 && lastLtfATR > 1.0)
                 {
                     firstValidLtfATR = lastLtfATR;
                     Print($"[ATR BACKFILL] First valid LTF ATR captured: {firstValidLtfATR:F2} at bar {CurrentBars[ltfBarsInProgress]}");
@@ -743,12 +749,14 @@ namespace NinjaTrader.NinjaScript.Indicators
                 //     Print($"[{Time[0]:yyyy-MM-dd HH:mm:ss}]: LTF_ATR={lastLtfATR:F1} (BIP={BarsInProgress}, Bar={CurrentBars[ltfBarsInProgress]})");
             }
 
-            if (BarsInProgress == htfBarsInProgress && atrOnHtf != null && atrOnHtf[0] > 0)
+            if (BarsInProgress == htfBarsInProgress && CurrentBars[htfBarsInProgress] >= 20
+                && atrOnHtf != null && atrOnHtf[0] > 0)
             {
                 lastHtfATR = atrOnHtf[0];
 
-                // Capture first valid ATR for backfilling
-                if (firstValidHtfATR == 0)
+                // Capture first valid ATR for backfilling (only capture realistic values > 1.0)
+                // This prevents capturing near-zero values during ATR warmup period
+                if (firstValidHtfATR == 0 && lastHtfATR > 1.0)
                 {
                     firstValidHtfATR = lastHtfATR;
                     Print($"[ATR BACKFILL] First valid HTF ATR captured: {firstValidHtfATR:F2} at bar {CurrentBars[htfBarsInProgress]}");
