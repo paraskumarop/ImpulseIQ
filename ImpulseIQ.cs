@@ -1596,6 +1596,8 @@ namespace NinjaTrader.NinjaScript.Indicators
                     exitTriggered = true;
                     double loss = Math.Abs((ltfOpen - entryLong) / div);
                     PFlossArr[index] += loss;
+                    if (index == 1611)
+                        Print($"[EXIT 4.0_5.0 S1 GAP] Entry={entryLong:F2}, Exit={ltfOpen:F2}, Loss={loss:F4}, Total Loss={PFlossArr[index]:F2}");
                     // Print($"[EXIT S1 STOP GAP #{index}] Entry={entryLong:F2}, Exit={ltfOpen:F2}, Loss={loss:F4}, Div={div}");
                 }
                 else if (ltfLow <= exitLong)
@@ -1604,6 +1606,8 @@ namespace NinjaTrader.NinjaScript.Indicators
                     exitTriggered = true;
                     double loss = Math.Abs((exitLong - entryLong) / div);
                     PFlossArr[index] += loss;
+                    if (index == 1611)
+                        Print($"[EXIT 4.0_5.0 S1 HIT] Entry={entryLong:F2}, Exit={exitLong:F2}, Loss={loss:F4}, Total Loss={PFlossArr[index]:F2}");
                     // Print($"[EXIT S1 STOP HIT #{index}] Entry={entryLong:F2}, Exit={exitLong:F2}, Loss={loss:F4}, Div={div}");
                 }
                 // Check EOD close for State 1
@@ -1643,11 +1647,15 @@ namespace NinjaTrader.NinjaScript.Indicators
                     {
                         PFprofitArr[index] += Math.Abs(pnl);
                         winsArr[index]++;
+                        if (index == 1611)
+                            Print($"[EXIT 4.0_5.0 S2 GAP WIN] Entry={entryLong:F2}, Exit={ltfOpen:F2}, PnL={pnl:F4}, Total Profit={PFprofitArr[index]:F2}");
                         // Print($"[EXIT S2 STOP GAP WIN #{index}] Entry={entryLong:F2}, Exit={ltfOpen:F2}, PnL={pnl:F4}, Div={div}");
                     }
                     else
                     {
                         PFlossArr[index] += Math.Abs(pnl);
+                        if (index == 1611)
+                            Print($"[EXIT 4.0_5.0 S2 GAP LOSS] Entry={entryLong:F2}, Exit={ltfOpen:F2}, PnL={pnl:F4}, Total Loss={PFlossArr[index]:F2}");
                         // Print($"[EXIT S2 STOP GAP LOSS #{index}] Entry={entryLong:F2}, Exit={ltfOpen:F2}, PnL={pnl:F4}, Div={div}");
                     }
                 }
@@ -1660,11 +1668,15 @@ namespace NinjaTrader.NinjaScript.Indicators
                     {
                         PFprofitArr[index] += Math.Abs(pnl);
                         winsArr[index]++;
+                        if (index == 1611)
+                            Print($"[EXIT 4.0_5.0 S2 HIT WIN] Entry={entryLong:F2}, Exit={exitLong:F2}, PnL={pnl:F4}, Total Profit={PFprofitArr[index]:F2}");
                         // Print($"[EXIT S2 STOP HIT WIN #{index}] Entry={entryLong:F2}, Exit={exitLong:F2}, PnL={pnl:F4}, IsProfit={pnl >= 0}, Div={div}");
                     }
                     else
                     {
                         PFlossArr[index] += Math.Abs(pnl);
+                        if (index == 1611)
+                            Print($"[EXIT 4.0_5.0 S2 HIT LOSS] Entry={entryLong:F2}, Exit={exitLong:F2}, PnL={pnl:F4}, Total Loss={PFlossArr[index]:F2}");
                         // Print($"[EXIT S2 STOP HIT LOSS #{index}] Entry={entryLong:F2}, Exit={exitLong:F2}, PnL={pnl:F4}, IsProfit={pnl >= 0}, Div={div}");
                     }
                 }
@@ -2123,7 +2135,12 @@ namespace NinjaTrader.NinjaScript.Indicators
 
                     tradesArr[index]++;
 
-                    // DEBUG: Verify long entry is in uptrend
+                    // DEBUG: Track entries for 4.0_5.0_0.9_1.9 (index 1611)
+                    if (index == 1611)
+                    {
+                        Print($"[ENTRY 4.0_5.0 #{tradesArr[index]}] Bar={CurrentBar}, Entry={ltfClose:F2}, Stop={exitArr[index]:F2}, Trigger={triggerArr[index]:F2}, Breakout={breakoutUp:F2}");
+                        Print($"  HTF: Y1={htfY1:F2}, Y2={htfY2:F2}, isHighFirst2Long={isHighFirst2Long}, htfRange={htfRange:F2}");
+                    }
 
                     // DEBUG LOGGING - Disabled to reduce spam
                     // Print($"[ENTRY LONG BREAKOUT #{index}] Bar={CurrentBar}, Entry={ltfClose:F2}, Stop={exitArr[index]:F2}, Trigger={triggerArr[index]:F2}, Breakout={breakoutUp:F2}");
