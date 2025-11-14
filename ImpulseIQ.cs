@@ -740,77 +740,65 @@ namespace NinjaTrader.NinjaScript.Indicators
                 //     Print($"[{Time[0]:yyyy-MM-dd HH:mm:ss}]: HTF_ATR={lastHtfATR:F1} (BIP={BarsInProgress}, Bar={CurrentBars[htfBarsInProgress]})");
             }
 
-            // Collect ALL data synchronized to PRIMARY bars (for optimization arrays)
-            // CRITICAL FIX: Only collect when we detect a NEW LTF bar close (matches PineScript isLastBar)
+            // Collect ALL data on EVERY PRIMARY bar (matches PineScript exactly)
+            // CRITICAL: PineScript collects data on every bar, stores isLastBar flag,
+            // then only tests ENTRIES on bars where isLastBar==true during optimization
             if (BarsInProgress == 0 && CurrentBar >= 14)
             {
-                // Detect NEW LTF bar close (matches PineScript: isLastBar = time(tfltf) != time(tfltf, -1))
+                if (CurrentBars[ltfBarsInProgress] < 14 || CurrentBars[htfBarsInProgress] < 14)
+                    return;
+
+                if (lastLtfATR == 0 || lastHtfATR == 0)
+                    return; // Skip until we have valid ATR values
+
+                // Collect LTF data
+                double ltfClose = Closes[ltfBarsInProgress][0];
+                double ltfClosePrev = CurrentBars[ltfBarsInProgress] >= 2 ? Closes[ltfBarsInProgress][1] : ltfClose;
+                ltfCloArr.Add(ltfClose);
+                ltfCloArr1.Add(ltfClosePrev);
+
+                // Collect ATR values
+                double ltfATRValue = lastLtfATR;
+                double htfATRValue = lastHtfATR;
+                atrArrLTF.Add(ltfATRValue);
+                atrArrHTF.Add(htfATRValue);
+
+                // Collect OHLC data for primary bars
+                openArrEnd.Add(Open[0]);
+                highArrEnd.Add(High[0]);
+                lowArrEnd.Add(Low[0]);
+                closeArrEnd.Add(Close[0]);
+                timeArrEnd.Add(Time[0]);
+                ohlc4ArrEnd.Add((Open[0] + High[0] + Low[0] + Close[0]) / 4.0);
+
+                // Calculate closer2low (did bar close closer to low than high?)
+                bool closer2low = Math.Abs(Open[0] - Low[0]) < Math.Abs(High[0] - Open[0]);
+                closer2lowArr.Add(closer2low);
+
+                // Detect if this is a new LTF bar close (matches PineScript isLastBar)
                 int currentLTFBar = CurrentBars[ltfBarsInProgress];
                 bool isNewLTFBar = (currentLTFBar != lastProcessedLTFBar);
-
-                // Only collect data when a NEW LTF bar closes
-                if (isNewLTFBar && CurrentBars[ltfBarsInProgress] >= 14 && CurrentBars[htfBarsInProgress] >= 14)
-                {
-                    if (lastLtfATR == 0 || lastHtfATR == 0)
-                        return; // Skip until we have valid ATR values
-
-                    // Update the last processed LTF bar
+                if (isNewLTFBar)
                     lastProcessedLTFBar = currentLTFBar;
 
-                    double ltfClose = Closes[ltfBarsInProgress][0];
-                    double ltfClosePrev = CurrentBars[ltfBarsInProgress] >= 2 ? Closes[ltfBarsInProgress][1] : ltfClose;
+                // Store isLastBar flag for this bar (used during optimization)
+                isLastBarArray.Add(isNewLTFBar);
 
-                    ltfCloArr.Add(ltfClose);
-                    ltfCloArr1.Add(ltfClosePrev);
-
-                    // CRITICAL FIX: Access ATR indicator directly, not stored value
-                    // atrOnLtf[0] during BIP=0 gives us the synchronized LTF ATR value
-                    double ltfATRValue = lastLtfATR;  // This was stored when BarsInProgress == ltfBarsInProgress
-                    atrArrLTF.Add(ltfATRValue);
-                    // double ltfATRValue = atrOnPrimary[0];  // Use PRIMARY ATR, not LTF ATR
-                    // atrArrLTF.Add(ltfATRValue);
-
-
-                    // Collect HTF ATR data (synchronized to LTF bar close)
-                    double htfATRValue = lastHtfATR;  // This was stored when BarsInProgress == htfBarsInProgress
-                    atrArrHTF.Add(htfATRValue);
-
-                    // Collect OHLC data for primary bars (synchronized to LTF bar close)
-                    openArrEnd.Add(Open[0]);
-                    highArrEnd.Add(High[0]);
-                    lowArrEnd.Add(Low[0]);
-                    closeArrEnd.Add(Close[0]);
-                    timeArrEnd.Add(Time[0]);
-                    ohlc4ArrEnd.Add((Open[0] + High[0] + Low[0] + Close[0]) / 4.0);
-
-                    // Calculate closer2low (did bar close closer to low than high?)
-                    bool closer2low = Math.Abs(Open[0] - Low[0]) < Math.Abs(High[0] - Open[0]);
-                    closer2lowArr.Add(closer2low);
-
-                    // Debug: Verify non-zero values and synchronization (only first 10 bars)
-                    if (atrArrLTF.Count <= 10)
-                    {
-                        Print($"[NEW LTF BAR #{atrArrLTF.Count}] LTF Bar={currentLTFBar}, Primary Bar={CurrentBar}, Time={Time[0]:HH:mm:ss}");
-                        Print($"  LTF: Close={ltfClose:F2}, ClosePrev={ltfClosePrev:F2}, ATR={ltfATRValue:F2}");
-                        Print($"  HTF: ATR={htfATRValue:F2}");
-                        Print($"  PRIMARY: H={High[0]:F2}, L={Low[0]:F2}, C={Close[0]:F2}, O={Open[0]:F2}");
-                    }
-
-                    // Limit historical arrays to reasonable size (keep last 10,000 bars max)
-                    if (ltfCloArr.Count > 30000)
-                    {
-                        ltfCloArr.RemoveAt(0);
-                        ltfCloArr1.RemoveAt(0);
-                        atrArrLTF.RemoveAt(0);
-                        atrArrHTF.RemoveAt(0);
-                        openArrEnd.RemoveAt(0);
-                        highArrEnd.RemoveAt(0);
-                        lowArrEnd.RemoveAt(0);
-                        closeArrEnd.RemoveAt(0);
-                        timeArrEnd.RemoveAt(0);
-                        ohlc4ArrEnd.RemoveAt(0);
-                        closer2lowArr.RemoveAt(0);
-                    }
+                // Limit historical arrays to reasonable size (keep last 30,000 bars max)
+                if (ltfCloArr.Count > 30000)
+                {
+                    ltfCloArr.RemoveAt(0);
+                    ltfCloArr1.RemoveAt(0);
+                    atrArrLTF.RemoveAt(0);
+                    atrArrHTF.RemoveAt(0);
+                    openArrEnd.RemoveAt(0);
+                    highArrEnd.RemoveAt(0);
+                    lowArrEnd.RemoveAt(0);
+                    closeArrEnd.RemoveAt(0);
+                    timeArrEnd.RemoveAt(0);
+                    ohlc4ArrEnd.RemoveAt(0);
+                    closer2lowArr.RemoveAt(0);
+                    isLastBarArray.RemoveAt(0);
                 }
             }
 
@@ -1862,8 +1850,13 @@ namespace NinjaTrader.NinjaScript.Indicators
                 // Update ZigZag for this parameter combination
                 UpdateZigZagOptimization(i, ltfMult, htfMult, ltfATR, htfATR, ltfHigh, ltfLow, ltfClose);
 
-                // Test entry logic for this combination (exits already processed above)
-                TestEntryExitLogic(i, ltfClose, ltfClosePrev, ltfATR, targetMult, trailingMult);
+                // Test entry logic ONLY if this is a new LTF bar close (matches PineScript isLastBar check)
+                // PineScript: if isLastBar and showOPTI and barstate.isconfirmed
+                bool isLastBar = historyIndex < isLastBarArray.Count && isLastBarArray[historyIndex];
+                if (isLastBar)
+                {
+                    TestEntryExitLogic(i, ltfClose, ltfClosePrev, ltfATR, targetMult, trailingMult);
+                }
             }
         }
 
