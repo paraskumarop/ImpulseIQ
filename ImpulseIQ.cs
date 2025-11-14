@@ -5059,9 +5059,13 @@ namespace NinjaTrader.NinjaScript.Indicators
             if (zz.Lines.Count == 0)
             {
                 if (debugDrawCounter++ % 1000 == 0)
-                    // Print($"[DrawProjections] No lines to draw");
+                    Print($"[DrawProjections] No lines to draw for BIP={barsInProgress}");
                 return;
             }
+
+            // Debug: Print projection info once
+            if (debugDrawCounter++ == 1)
+                Print($"[DrawProjections] Drawing {zz.Lines.Count} projection lines, BIP={barsInProgress}, Dir={zz.Direction}");
 
            
 
@@ -5070,10 +5074,10 @@ namespace NinjaTrader.NinjaScript.Indicators
             // polyline.new(CPLTF, xloc = xloc.bar_time, line_color = color.new(line_color1, 50),
             //              line_style = line.style_dotted, line_width = 2)
 
-            // Create a semi-transparent brush (50% transparency like PineScript)
+            // Create a semi-transparent brush (less transparent than before for better visibility)
             var baseColor = zz.Direction == 1 ?
-                new SharpDX.Color(116, 255, 188, 128) :  // Green with 50% alpha
-                new SharpDX.Color(255, 116, 116, 128);    // Red with 50% alpha
+                new SharpDX.Color(116, 255, 188, 200) :  // Green with 78% alpha (was 50%)
+                new SharpDX.Color(255, 116, 116, 200);    // Red with 78% alpha (was 50%)
 
             using (var brush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, baseColor))
             using (var style = new StrokeStyle(Core.Globals.D2DFactory,
@@ -5096,9 +5100,9 @@ namespace NinjaTrader.NinjaScript.Indicators
                     // Debug first line
                   
 
-                    // Draw the dotted semi-transparent projection line segment
+                    // Draw the dotted semi-transparent projection line segment (width=3 for visibility)
                     RenderTarget.DrawLine(new Vector2(x1, y1), new Vector2(x2, y2),
-                        brush, 2, style);
+                        brush, 3, style);
 
                     linesDrawn++;
                 }
