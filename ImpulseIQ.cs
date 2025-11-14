@@ -156,6 +156,14 @@ namespace NinjaTrader.NinjaScript.Indicators
         private double lastLtfATR = 0;
         private double lastHtfATR = 0;
 
+        private double firstValidLtfATR = 0;  // Track first valid ATR for backfilling
+
+        private double firstValidHtfATR = 0;  // Track first valid ATR for backfilling
+
+        private bool hasBackfilledATR = false; // Track if we've backfilled
+
+
+
         // Manual ATR calculation for multi-timeframe
         private List<double> ltfTrueRanges = new List<double>();
         private List<double> htfTrueRanges = new List<double>();
@@ -245,6 +253,9 @@ namespace NinjaTrader.NinjaScript.Indicators
         private List<bool> closer2lowArr = new List<bool>();      // Did bar close closer to low?
         private List<bool> isLastBarArray = new List<bool>();     // Is this the last bar of session?
 
+        // LTF bar change detection (matches PineScript isLastBar logic)
+        private int lastProcessedLTFBar = -1;  // Track last LTF bar we processed
+
         // OHLC history arrays (for backtesting)
         // PRIMARY (Chart timeframe) bars - used for timestamp and primary data
         private List<double> openArrEnd = new List<double>();
@@ -300,6 +311,14 @@ namespace NinjaTrader.NinjaScript.Indicators
         private double bestATRshorthtf = 2.0;
         private double bestTrailingS = 1.5;
         private double bestTargetS = 3.0;
+
+                // Store optimization PF results (display these, not live trading results)
+
+        private double optimizationPFLong = 0;   // PF from optimization for best long params
+
+        private double optimizationPFShort = 0;  // PF from optimization for best short params
+
+
 
         private int bestLongsIndex = 0;       // Index of best long parameter combo
         private int bestShortsIndex = 0;      // Index of best short parameter combo
@@ -701,281 +720,240 @@ namespace NinjaTrader.NinjaScript.Indicators
 
         #endregion
 
-        protected override void OnBarUpdate()
-        {
-            if (CurrentBar < 20) return;
-
-            // IMPORTANT: Handle cases where LTF and/or HTF use different BarsInProgress indices
-            // When both use the same index (e.g., both = 0 for chart timeframe), we need to update both
-
-            
-            bool isLTFBar = (BarsInProgress == ltfBarsInProgress);
-            bool isHTFBar = (BarsInProgress == htfBarsInProgress);
-            bool bothUseSameBars = (ltfBarsInProgress == htfBarsInProgress);
-
-            // ========================================================================
-            // PHASE 2: DATA COLLECTION (RadiIQ enhancement)
-            // Collect historical data for optimization and backtesting
-            // CRITICAL: Store ATR when each TF updates, but collect ALL data on PRIMARY bars
-            // ========================================================================
-            Print($"[{Time[0]:yyyy-MM-dd HH:mm:ss}]: LTF_ATR={atrOnPrimary[0]:F1} (BIP={BarsInProgress}, Bar={CurrentBars[ltfBarsInProgress]})");
-            // Store latest ATR values when each timeframe updates (for real-time access)
-            if (BarsInProgress == ltfBarsInProgress && atrOnLtf != null && atrOnLtf[0] > 0)
+                    protected override void OnBarUpdate()
             {
-                lastLtfATR = atrOnLtf[0];
+                // CRITICAL: Collect from bar 0 to match PineScript (NO early return!)
+                // Safety checks below prevent errors while still collecting all data
+                
+                // SAFETY: Wait for all series to have at least 1 bar before accessing
+                if (CurrentBars[ltfBarsInProgress] < 0 || CurrentBars[htfBarsInProgress] < 0)
+                    return;
 
-                // Debug: Print ATR values to verify they're correct
-                // if (CurrentBars[ltfBarsInProgress] <= 20 || (Time[0].Hour == 12 && Time[0].Minute == 55))
-                    Print($"[{Time[0]:yyyy-MM-dd HH:mm:ss}]: LTF_ATR={lastLtfATR:F1} (BIP={BarsInProgress}, Bar={CurrentBars[ltfBarsInProgress]})");
-            }
+                // IMPORTANT: Handle cases where LTF and/or HTF use different BarsInProgress indices
+                // When both use the same index (e.g., both = 0 for chart timeframe), we need to update both
+                bool isLTFBar = (BarsInProgress == ltfBarsInProgress);
+                bool isHTFBar = (BarsInProgress == htfBarsInProgress);
+                bool bothUseSameBars = (ltfBarsInProgress == htfBarsInProgress);
 
-            if (BarsInProgress == htfBarsInProgress && atrOnHtf != null && atrOnHtf[0] > 0)
-            {
-                lastHtfATR = atrOnHtf[0];
-
-                // Debug: Print ATR values to verify they're correct
-                // if (CurrentBars[htfBarsInProgress] <= 20 || (Time[0].Hour == 12 && Time[0].Minute == 55))
-                    Print($"[{Time[0]:yyyy-MM-dd HH:mm:ss}]: HTF_ATR={lastHtfATR:F1} (BIP={BarsInProgress}, Bar={CurrentBars[htfBarsInProgress]})");
-            }
-
-            // Collect ALL data synchronized to PRIMARY bars (for optimization arrays)
-            if (BarsInProgress == 0 && CurrentBar >= 14)
-            {
-                // Collect LTF data (close, ATR) synchronized to primary bars
-                if (CurrentBars[ltfBarsInProgress] >= 14)
+                // ========================================================================
+                // PHASE 2: DATA COLLECTION (RadiIQ enhancement)
+                // Collect historical data for optimization and backtesting
+                // CRITICAL: Store ATR when each TF updates, but collect ALL data on PRIMARY bars
+                // ========================================================================
+                
+                // Store latest ATR values when each timeframe updates (for real-time access)
+                // CRITICAL: Only access ATR after enough bars for calculation (prevent array index errors)
+                if (BarsInProgress == ltfBarsInProgress && CurrentBars[ltfBarsInProgress] >= 20
+                    && atrOnLtf != null && atrOnLtf[0] > 0)
                 {
-                    if (lastLtfATR == 0 || lastHtfATR == 0) 
-                    return; // Skip until we have valid ATR values
+                    lastLtfATR = atrOnLtf[0];
 
+                    // Capture first valid ATR for backfilling (only capture realistic values > 1.0)
+                    // This prevents capturing near-zero values during ATR warmup period
+                    if (firstValidLtfATR == 0 && lastLtfATR > 1.0)
+                    {
+                        firstValidLtfATR = lastLtfATR;
+                        Print($"[ATR BACKFILL] First valid LTF ATR captured: {firstValidLtfATR:F2} at bar {CurrentBars[ltfBarsInProgress]}");
+                    }
+                }
+
+                if (BarsInProgress == htfBarsInProgress && CurrentBars[htfBarsInProgress] >= 20
+                    && atrOnHtf != null && atrOnHtf[0] > 0)
+                {
+                    lastHtfATR = atrOnHtf[0];
+
+                    // Capture first valid ATR for backfilling (only capture realistic values > 1.0)
+                    // This prevents capturing near-zero values during ATR warmup period
+                    if (firstValidHtfATR == 0 && lastHtfATR > 1.0)
+                    {
+                        firstValidHtfATR = lastHtfATR;
+                        Print($"[ATR BACKFILL] First valid HTF ATR captured: {firstValidHtfATR:F2} at bar {CurrentBars[htfBarsInProgress]}");
+                    }
+                }
+
+                // Collect ALL data on EVERY PRIMARY bar (matches PineScript exactly)
+                // CRITICAL: PineScript collects data on every bar, stores isLastBar flag,
+                // then only tests ENTRIES on bars where isLastBar==true during optimization
+                if (BarsInProgress == 0 && CurrentBar >= 0)
+                {
+                    // SAFETY: Wait until both ATR series have provided valid values
+                    // This prevents collecting data with 0.01 fallback values that corrupt optimization
+                    if (lastLtfATR <= 0 || lastHtfATR <= 0)
+                        return;
+
+                    // Collect LTF data - use current values
                     double ltfClose = Closes[ltfBarsInProgress][0];
-                    double ltfClosePrev = CurrentBars[ltfBarsInProgress] >= 2 ? Closes[ltfBarsInProgress][1] : ltfClose;
-
+                    double ltfClosePrev = CurrentBars[ltfBarsInProgress] >= 1 ? Closes[ltfBarsInProgress][1] : ltfClose;
                     ltfCloArr.Add(ltfClose);
                     ltfCloArr1.Add(ltfClosePrev);
 
-                    // CRITICAL FIX: Access ATR indicator directly, not stored value
-                    // atrOnLtf[0] during BIP=0 gives us the synchronized LTF ATR value
-                    double ltfATRValue = lastLtfATR;  // This was stored when BarsInProgress == ltfBarsInProgress
-                    atrArrLTF.Add(ltfATRValue);
-                    // double ltfATRValue = atrOnPrimary[0];  // Use PRIMARY ATR, not LTF ATR
-                    // atrArrLTF.Add(ltfATRValue);
+                    // Collect ATR values - use actual values (not fallbacks)
+                    atrArrLTF.Add(lastLtfATR);
+                    atrArrHTF.Add(lastHtfATR);
 
+                    // Collect OHLC data for primary bars
+                    openArrEnd.Add(Open[0]);
+                    highArrEnd.Add(High[0]);
+                    lowArrEnd.Add(Low[0]);
+                    closeArrEnd.Add(Close[0]);
+                    timeArrEnd.Add(Time[0]);
+                    ohlc4ArrEnd.Add((Open[0] + High[0] + Low[0] + Close[0]) / 4.0);
 
-                    // Debug: Verify non-zero values and synchronization
-                    if (atrArrLTF.Count <= 20 || atrArrLTF.Count == 50 || atrArrLTF.Count == 100)
+                    // Calculate closer2low (did bar close closer to low than high?)
+                    bool closer2low = Math.Abs(Open[0] - Low[0]) < Math.Abs(High[0] - Open[0]);
+                    closer2lowArr.Add(closer2low);
+
+                    // Detect if this is a new LTF bar close (matches PineScript isLastBar)
+                    int currentLTFBar = CurrentBars[ltfBarsInProgress];
+                    bool isNewLTFBar = (currentLTFBar != lastProcessedLTFBar);
+                    if (isNewLTFBar)
+                        lastProcessedLTFBar = currentLTFBar;
+
+                    // Store isLastBar flag for this bar (used during optimization)
+                    isLastBarArray.Add(isNewLTFBar);
+
+                    // Debug first 5 and last 5 bars collected
+                    if (ltfCloArr.Count <= 5 || ltfCloArr.Count >= 5325)
+                        Print($"[DATA COLLECT] Bar #{ltfCloArr.Count}, CurrentBar={CurrentBar}, Time={Time[0]:HH:mm}, isLastBar={isNewLTFBar}, ltfATR={lastLtfATR:F2}, htfATR={lastHtfATR:F2}");
+
+                    // Limit historical arrays to reasonable size (keep last 30,000 bars max)
+                    if (ltfCloArr.Count > 30000)
                     {
-                        // Print($"[DATA COLLECT #{atrArrLTF.Count}] Bar={CurrentBar}, Time={Time[0]:HH:mm:ss}");
-                        // Print($"  LTF: Close={ltfClose:F2}, ClosePrev={ltfClosePrev:F2}, ATR={ltfATRValue:F2}");
-                        // Print($"  LTF BIP={ltfBarsInProgress}, CurrentBars[LTF]={CurrentBars[ltfBarsInProgress]}");
+                        ltfCloArr.RemoveAt(0);
+                        ltfCloArr1.RemoveAt(0);
+                        atrArrLTF.RemoveAt(0);
+                        atrArrHTF.RemoveAt(0);
+                        openArrEnd.RemoveAt(0);
+                        highArrEnd.RemoveAt(0);
+                        lowArrEnd.RemoveAt(0);
+                        closeArrEnd.RemoveAt(0);
+                        timeArrEnd.RemoveAt(0);
+                        ohlc4ArrEnd.RemoveAt(0);
+                        closer2lowArr.RemoveAt(0);
+                        isLastBarArray.RemoveAt(0);
                     }
                 }
 
-                // Collect HTF data (ATR) synchronized to primary bars
-                if (CurrentBars[htfBarsInProgress] >= 14)
-                {
-                     if (lastLtfATR == 0 || lastHtfATR == 0) 
-                        return; // Skip until we have valid ATR values
-                    // CRITICAL FIX: Access ATR indicator directly, not stored value
-                    // atrOnHtf[0] during BIP=0 gives us the synchronized HTF ATR value
-                   double htfATRValue = lastHtfATR;  // This was stored when BarsInProgress == htfBarsInProgress
-                   atrArrHTF.Add(htfATRValue); 
-                    // double htfATRValue = atrOnPrimary[0];  // Use PRIMARY ATR, not HTF ATR
-                    // atrArrHTF.Add(htfATRValue);
+                // ========================================================================
+                // CRITICAL FIX: Update ZigZag on EACH timeframe as bars arrive
+                // Don't wait for training - use default or optimized parameters
+                // ========================================================================
 
-                    // Debug: Verify non-zero values and synchronization
-                    if (atrArrHTF.Count <= 20 || atrArrHTF.Count == 50 || atrArrHTF.Count == 100)
+                // Determine which ATR multiplier to use (default until trained)
+                double ltfATRMultiplier = trained ? bestATRLTF : 2.0;
+                double htfATRMultiplier = trained ? bestATRHTF : 2.0;
+
+                // Update LTF if this is an LTF bar
+                if (isLTFBar && CurrentBars[ltfBarsInProgress] >= 14)
+                {
+                    // Store PREVIOUS bar's Y1 BEFORE updating (for PineScript [1] operator)
+                    double tempPrevY1LTF = zzLTF.Y1Price;
+
+                    UpdateZigZag(zzLTF, ltfBarsInProgress, ltfATRMultiplier);
+
+                    // Store the previous value for comparison on THIS bar
+                    prevBarY1LTF = tempPrevY1LTF;
+
+                    // If LTF and HTF use different series, exit here to avoid running primary logic
+                    if (!bothUseSameBars)
+                        return;
+                }
+
+                // Update HTF if this is an HTF bar (and different from LTF, or if both use same bars)
+                if (isHTFBar && CurrentBars[htfBarsInProgress] >= 14)
+                {
+                    // Store PREVIOUS bar's Y1 BEFORE updating (for PineScript [1] operator)
+                    double tempPrevY1HTF = zzHTF.Y1Price;
+
+                    UpdateZigZag(zzHTF, htfBarsInProgress, htfATRMultiplier);
+
+                    // Store the previous value for comparison on THIS bar
+                    prevBarY1HTF = tempPrevY1HTF;
+
+                    // If HTF uses different series than primary, exit here
+                    if (htfBarsInProgress != 0)
+                        return;
+                }
+
+                // ========================================================================
+                // PRIMARY BAR LOGIC - Only execute on primary bars
+                // ========================================================================
+                if (BarsInProgress != 0) return;
+                if (CurrentBars[ltfBarsInProgress] < 14 || CurrentBars[htfBarsInProgress] < 14) return;
+
+                // ========================================================================
+                // DETECT END OF HISTORICAL DATA - Run Optimization & Select Best Parameters
+                // ========================================================================
+                
+                // Trigger training when we have enough bars OR when transitioning to realtime
+                bool hasEnoughData = closeArrEnd.Count >= 200;
+                bool isTransitioningToRealtime = (State == State.Realtime && !trained);
+                bool isNearEndOfHistory = (State == State.Historical && CurrentBar >= Count - 2);
+
+                bool shouldTrain = hasEnoughData && (isTransitioningToRealtime || isNearEndOfHistory);
+
+                if (!trained && shouldTrain)
+                {
+                    Print($"[TRAINING TRIGGERED] Bars collected: {closeArrEnd.Count}, State: {State}, CurrentBar: {CurrentBar}");
+                    Print($"[TRAINING] isLastBarArray.Count={isLastBarArray.Count}, true count={isLastBarArray.Count(x => x)}");
+
+                    // Run optimization loop on ALL historical data (like PineScript barstate.islastconfirmedhistory)
+                    for (int barIndex = 0; barIndex < closeArrEnd.Count; barIndex++)
                     {
-                        // Print($"  HTF: ATR={htfATRValue:F2}, BIP={htfBarsInProgress}, CurrentBars[HTF]={CurrentBars[htfBarsInProgress]}");
-                        // Print($"  PRIMARY: H={High[0]:F2}, L={Low[0]:F2}, C={Close[0]:F2}, O={Open[0]:F2}");
+                        RunOptimizationLoopForBar(barIndex);
                     }
+
+                    trained = true;
+                    isLastConfirmedHistory = true;
+                    optimizationCompleteBar = CurrentBar;
+
+                    // Select best performing parameters
+                    SelectBestParameters();
+
+                    // Replay history with best parameters to populate zigzag lines
+                    ReplayHistoryWithBestParameters();
+
+                    // CRITICAL: Initialize CurrentLine from the final zigzag state after replay
+                    InitializeCurrentLineFromReplay(zzLTF);
+                    InitializeCurrentLineFromReplay(zzHTF);
+
+                    Print($"Training complete! Now using optimized parameters:");
+                    Print($"  LTF Lines: {zzLTF.Lines.Count}, HTF Lines: {zzHTF.Lines.Count}");
+                    Print($"  Best ATR: LTF={bestATRLTF:F1}, HTF={bestATRHTF:F1}");
                 }
 
-                // Collect OHLC data for primary bars
-                openArrEnd.Add(Open[0]);
-                highArrEnd.Add(High[0]);
-                lowArrEnd.Add(Low[0]);
-                closeArrEnd.Add(Close[0]);
-                timeArrEnd.Add(Time[0]);
-                ohlc4ArrEnd.Add((Open[0] + High[0] + Low[0] + Close[0]) / 4.0);
-
-                // Calculate closer2low (did bar close closer to low than high?)
-                double closeRange = Close[0] - Low[0];
-                double barRange = High[0] - Low[0];
-                // bool closer2low = barRange > 0 ? (closeRange < barRange / 2.0) : false;
-                bool closer2low = Math.Abs(Open[0] - Low[0]) < Math.Abs(High[0] - Open[0]);
-
-                closer2lowArr.Add(closer2low);
-
-                // Limit historical arrays to reasonable size (keep last 10,000 bars max)
-                if (ltfCloArr.Count > 30000)
+                // ========================================================================
+                // PHASE 5: REAL-TIME TRADE TRACKING (After optimization completes)
+                // ========================================================================
+                if (trained)
                 {
-                    ltfCloArr.RemoveAt(0);
-                    ltfCloArr1.RemoveAt(0);
-                    atrArrLTF.RemoveAt(0);
-                    atrArrHTF.RemoveAt(0);
-                    openArrEnd.RemoveAt(0);
-                    highArrEnd.RemoveAt(0);
-                    lowArrEnd.RemoveAt(0);
-                    closeArrEnd.RemoveAt(0);
-                    timeArrEnd.RemoveAt(0);
-                    ohlc4ArrEnd.RemoveAt(0);
-                    closer2lowArr.RemoveAt(0);
+                    TrackRealTimeTrades();
                 }
-            }
 
-            // ========================================================================
-            // CRITICAL FIX: Update ZigZag on EACH timeframe as bars arrive
-            // Don't wait for training - use default or optimized parameters
-            // ========================================================================
+                // Update performance text
+                // Match PineScript logic: compare current Y2 with PREVIOUS BAR's Y1
+                bool condUpH = zzHTF.Y2Price > prevBarY1HTF;
+                bool condUpL = zzLTF.Y2Price > prevBarY1LTF;
+                bool condDnH = zzHTF.Y2Price < prevBarY1HTF;
+                bool condDnL = zzLTF.Y2Price < prevBarY1LTF;
 
-            // Determine which ATR multiplier to use (default until trained)
-            double ltfATRMultiplier = trained ? bestATRLTF : 2.0;
-            double htfATRMultiplier = trained ? bestATRHTF : 2.0;
+                string trend = (condUpH && condUpL) ? "Uptrend" :
+                            (condDnH && condDnL) ? "Downtrend" : "Mixed";
 
-            // Update LTF if this is an LTF bar
-            if (isLTFBar && CurrentBars[ltfBarsInProgress] >= 14)
-            {
-                // Store PREVIOUS bar's Y1 BEFORE updating (for PineScript [1] operator)
-                double tempPrevY1LTF = zzLTF.Y1Price;
+                performanceText = $"Impulse IQ\nLongs PF: {profitFactor:F2}\nTrend: {trend}";
 
-                UpdateZigZag(zzLTF, ltfBarsInProgress, ltfATRMultiplier);
-
-                // Store the previous value for comparison on THIS bar
-                prevBarY1LTF = tempPrevY1LTF;
-
-                // Debug: Verify LTF zigzag is updating
-                if (CurrentBars[ltfBarsInProgress] <= 20)
-                    // Print($"[LTF ZZ UPDATE] Bar={CurrentBars[ltfBarsInProgress]}, ATR={lastLtfATR:F1}, Multiplier={ltfATRMultiplier:F1}, Trained={trained}");
-
-                // If LTF and HTF use different series, exit here to avoid running primary logic
-                if (!bothUseSameBars)
-                    return;
-            }
-
-            // Update HTF if this is an HTF bar (and different from LTF, or if both use same bars)
-            if (isHTFBar && CurrentBars[htfBarsInProgress] >= 14)
-            {
-                // Store PREVIOUS bar's Y1 BEFORE updating (for PineScript [1] operator)
-                double tempPrevY1HTF = zzHTF.Y1Price;
-
-                UpdateZigZag(zzHTF, htfBarsInProgress, htfATRMultiplier);
-
-                // Store the previous value for comparison on THIS bar
-                prevBarY1HTF = tempPrevY1HTF;
-
-                // Debug: Verify HTF zigzag is updating
-                if (CurrentBars[htfBarsInProgress] <= 20)
-                    // Print($"[HTF ZZ UPDATE] Bar={CurrentBars[htfBarsInProgress]}, ATR={lastHtfATR:F1}, Multiplier={htfATRMultiplier:F1}, Trained={trained}");
-
-                // If HTF uses different series than primary, exit here
-                if (htfBarsInProgress != 0)
-                    return;
-            }
-
-            // ========================================================================
-            // PRIMARY BAR LOGIC - Only execute on primary bars
-            // ========================================================================
-            if (BarsInProgress != 0) return;
-            if (CurrentBars[ltfBarsInProgress] < 14 || CurrentBars[htfBarsInProgress] < 14) return;
-
-
-            // REMOVED: Don't run optimization on every bar - only run once at end of history
-            // if (CurrentBar >= 50 && !trained)
-            // {
-            //     RunOptimizationLoop();
-            // }
-
-            // ========================================================================
-            // DETECT END OF HISTORICAL DATA - Run Optimization & Select Best Parameters
-            // ========================================================================
-            // CRITICAL FIX: Relaxed trigger condition to work in all modes
-            // Original was too restrictive - now triggers when we have sufficient data
-
-            // Trigger training when we have enough bars OR when transitioning to realtime
-            bool hasEnoughData = closeArrEnd.Count >= 200;
-            bool isTransitioningToRealtime = (State == State.Realtime && !trained);
-            bool isNearEndOfHistory = (State == State.Historical && CurrentBar >= Count - 2);
-
-            bool shouldTrain = hasEnoughData && (isTransitioningToRealtime || isNearEndOfHistory);
-
-            if (!trained && shouldTrain)
-            {
-                // Print($"[TRAINING TRIGGERED] Bars collected: {closeArrEnd.Count}, State: {State}, CurrentBar: {CurrentBar}");
-
-                // We've transitioned to real-time - optimization training is complete
-              
-                // Run optimization loop on ALL historical data (like PineScript barstate.islastconfirmedhistory)
-                for (int barIndex = 0; barIndex < closeArrEnd.Count; barIndex++)
+                // Refresh IQ meters when trend changes
+                if (condUpH != lastCondUpHTF || condUpL != lastCondUpLTF ||
+                    condDnH != lastCondDnHTF || condDnL != lastCondDnLTF)
                 {
-                    
-
-                    RunOptimizationLoopForBar(barIndex);
+                    needsIQMeterRefresh = true;
                 }
 
-                // Print($"[OPTIMIZATION] Sample results from first 10 combos:");
-                // for (int i = 0; i < Math.Min(10, stringArr.Count); i++)
-                // {
-                //     Print($"  Combo {i} ({stringArr[i]}): Trades={tradesArr[i]}, Wins={winsArr[i]}, Profit={PFprofitArr[i]:F2}, Loss={PFlossArr[i]:F2}");
-                // }
-
-                trained = true;
-                isLastConfirmedHistory = true;
-                optimizationCompleteBar = CurrentBar;
-
-                // Select best performing parameters
-                SelectBestParameters();
-
-               
-
-                ReplayHistoryWithBestParameters();
-
-                // CRITICAL: Initialize CurrentLine from the final zigzag state after replay
-                // The replay populated Lines list, but we need CurrentLine for real-time updates
-                InitializeCurrentLineFromReplay(zzLTF);
-                InitializeCurrentLineFromReplay(zzHTF);
-
-                // Print($"Training complete! Now using optimized parameters:");
-                // Print($"  LTF Lines: {zzLTF.Lines.Count}, HTF Lines: {zzHTF.Lines.Count}");
-                // Print($"  LTF: Y1={zzLTF.Y1Price:F2}, Y2={zzLTF.Y2Price:F2}, CurrentLine={(zzLTF.CurrentLine != null ? "Initialized" : "NULL")}");
-                // Print($"  HTF: Y1={zzHTF.Y1Price:F2}, Y2={zzHTF.Y2Price:F2}, CurrentLine={(zzHTF.CurrentLine != null ? "Initialized" : "NULL")}");
+                lastCondUpHTF = condUpH;
+                lastCondUpLTF = condUpL;
+                lastCondDnHTF = condDnH;
+                lastCondDnLTF = condDnL;
             }
-
-            // ========================================================================
-            // PHASE 5: REAL-TIME TRADE TRACKING (After optimization completes)
-            // ========================================================================
-            if (trained)
-            {
-                TrackRealTimeTrades();
-            }
-
-            // CRITICAL: Detect breakout crossovers and create lines
-            // Breakout points are already set in UpdateZigZag when pivots are confirmed
-          
-
-            // Update performance text
-            // Match PineScript logic: compare current Y2 with PREVIOUS BAR's Y1
-            // PineScript: condUpH = y2PriceHTFLFinal.last() > y1PriceHTFLFinal.last()[1]
-            // The [1] means "value from 1 bar ago", not array history
-            bool condUpH = zzHTF.Y2Price > prevBarY1HTF;
-            bool condUpL = zzLTF.Y2Price > prevBarY1LTF;
-            bool condDnH = zzHTF.Y2Price < prevBarY1HTF;
-            bool condDnL = zzLTF.Y2Price < prevBarY1LTF;
-
-           
-
-            string trend = (condUpH && condUpL) ? "Uptrend" :
-                          (condDnH && condDnL) ? "Downtrend" : "Mixed";
-
-            performanceText = $"Impulse IQ\nLongs PF: {profitFactor:F2}\nTrend: {trend}";
-
-            // Refresh IQ meters when trend changes
-            if (condUpH != lastCondUpHTF || condUpL != lastCondUpLTF ||
-                condDnH != lastCondDnHTF || condDnL != lastCondDnLTF)
-            {
-                needsIQMeterRefresh = true;
-            }
-        }
-
         private void InitializeCurrentLineFromReplay(ZigZagState zz)
         {
             // After ReplayHistoryWithBestParameters completes, the last line in Lines
@@ -1074,7 +1052,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                     zz.Y2Time = time;
 
                     // Create CurrentLine (SOLID developing line) instead of adding to Lines
-                    zz.CurrentLine = new ZigZagLine
+                    zz.CurrentLine = new ZigZagLine 
                     {
                         X1 = zz.Y1Time,
                         Y1 = zz.Y1Price,
@@ -1083,7 +1061,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                         IsDotted = false  // Current line is SOLID
                     };
                 }
-                else if (low <= zz.Point - atrValue)  // CORRECTED: was '+' in buggy PineScript line 1623
+                else if (low <= zz.Point + atrValue)  // Match PineScript
                 {
                     zz.Direction = -1;
                     zz.Point = low;
@@ -1552,20 +1530,19 @@ namespace NinjaTrader.NinjaScript.Indicators
             {
                 if (ltfOpen <= exitLong)
                 {
-                    // Gapped down through stop in State 1 - ALWAYS LOSS
+                    // Gapped down through stop in State 1 - ALWAYS LOSS ❌
                     exitTriggered = true;
                     double loss = Math.Abs((ltfOpen - entryLong) / div);
-                    PFlossArr[index] += loss;
-                    // Print($"[EXIT S1 STOP GAP #{index}] Entry={entryLong:F2}, Exit={ltfOpen:F2}, Loss={loss:F4}, Div={div}");
+                    PFlossArr[index] += loss;  // UNCONDITIONAL - always adds to loss!
                 }
                 else if (ltfLow <= exitLong)
                 {
-                    // Stop hit during bar in State 1 - ALWAYS LOSS
+                    // Stop hit during bar in State 1 - ALWAYS LOSS ❌
                     exitTriggered = true;
                     double loss = Math.Abs((exitLong - entryLong) / div);
-                    PFlossArr[index] += loss;
-                    // Print($"[EXIT S1 STOP HIT #{index}] Entry={entryLong:F2}, Exit={exitLong:F2}, Loss={loss:F4}, Div={div}");
+                    PFlossArr[index] += loss;  // UNCONDITIONAL - always adds to loss!
                 }
+
                 // Check EOD close for State 1
                 else if (isEOD && CloseAtEOD)
                 {
@@ -1870,7 +1847,12 @@ namespace NinjaTrader.NinjaScript.Indicators
                 UpdateZigZagOptimization(i, ltfMult, htfMult, ltfATR, htfATR, ltfHigh, ltfLow, ltfClose);
 
                 // Test entry logic for this combination (exits already processed above)
-                TestEntryExitLogic(i, ltfClose, ltfClosePrev, ltfATR, targetMult, trailingMult);
+                bool isLastBar = historyIndex < isLastBarArray.Count && isLastBarArray[historyIndex];
+                if (isLastBar)
+                {
+                    TestEntryExitLogic(i, ltfClose, ltfClosePrev, ltfATR, targetMult, trailingMult);
+                }
+
             }
         }
 
@@ -2767,6 +2749,14 @@ namespace NinjaTrader.NinjaScript.Indicators
             bestLongsIndex = pfLongs.IndexOf(maxPFLong);
             tablePF = maxPFLong;
 
+                        // CRITICAL: Save optimization PF BEFORE resetting arrays for live trading
+
+            // This is what we display in the performance table
+
+            optimizationPFLong = maxPFLong;
+
+
+
             // Parse best long parameters
             string[] bestLongParams = stringArr[bestLongsIndex].Split('_');
             bestATRLTF = double.Parse(bestLongParams[0]);
@@ -2786,6 +2776,8 @@ namespace NinjaTrader.NinjaScript.Indicators
             double maxPFShort = pfShorts.Max();
             bestShortsIndex = pfShorts.IndexOf(maxPFShort);
             tablePFS = maxPFShort;
+            optimizationPFShort = maxPFShort;
+
 
             // Parse best short parameters
             string[] bestShortParams = stringArr[bestShortsIndex].Split('_');
@@ -2801,9 +2793,10 @@ namespace NinjaTrader.NinjaScript.Indicators
                 // Print($"[SelectBestParameters] This violates multi-timeframe principles. HTF should be less sensitive (higher multiplier).");
             }
 
+
             // Use the EXACT optimized parameters for shorts - do NOT average!
             // Print($"[SelectBestParameters] Shorts using EXACT params: LTF_ATR={bestATRshortltf:F2}, HTF_ATR={bestATRshorthtf:F2}, Target={bestTargetS:F1}, Trailing={bestTrailingS:F1}");
-
+            
             // Update performance text
             int longTrades = tradesArr[bestLongsIndex];
             int longWins = winsArr[bestLongsIndex];
@@ -2813,12 +2806,54 @@ namespace NinjaTrader.NinjaScript.Indicators
             int shortWins = winsArrS[bestShortsIndex];
             double shortWinRate = shortTrades > 0 ? (double)shortWins / shortTrades * 100 : 0;
 
+
+            Print($"[SelectBestParameters] atrArrLTF.Count={atrArrLTF.Count}, atrArrHTF.Count={atrArrHTF.Count}");
+            Print($"[SelectBestParameters] BEST LONG: PF={tablePF:F2}, Params={stringArr[bestLongsIndex]}, Trades={longTrades}, Wins={longWins}, WinRate={longWinRate:F1}%");
+            Print($"[SelectBestParameters] BEST SHORT: PF={tablePFS:F2}, Params={stringArr[bestShortsIndex]}, Trades={shortTrades}, Wins={shortWins}, WinRate={shortWinRate:F1}%");
+            var topLongs = pfLongs.Select((pf, idx) => new { PF = pf, Index = idx, Params = stringArr[idx], Trades = tradesArr[idx] })
+
+                .OrderByDescending(x => x.PF).Take(5).ToList();
+
+            Print($"[LONG TOP 5]:");
+
+            foreach (var item in topLongs)
+
+                Print($"  #{item.Index}: PF={item.PF:F2}, Params={item.Params}, Trades={item.Trades}");
+
+            // After line 2838 (after printing TOP 5), add:
+                Print($"[DEBUG] Checking index #1611 (4.0_5.0_0.9_1.9):");
+                if (stringArr.Count > 1611)
+                {
+                    Print($"  Params: {stringArr[1611]}");
+                    Print($"  PF: {pfLongs[1611]:F2}");
+                    Print($"  Trades: {tradesArr[1611]}");
+                    Print($"  Wins: {winsArr[1611]}");
+                    Print($"  Profit: {PFprofitArr[1611]:F2}");
+                    Print($"  Loss: {PFlossArr[1611]:F2}");
+                }
+
+            // Show top 5 SHORT combinations
+
+            var topShorts = pfShorts.Select((pf, idx) => new { PF = pf, Index = idx, Params = stringArr[idx], Trades = tradesArrS[idx] })
+
+                .OrderByDescending(x => x.PF).Take(5).ToList();
+
+            Print($"[SHORT TOP 5]:");
+
+            foreach (var item in topShorts)
+
+                Print($"  #{item.Index}: PF={item.PF:F2}, Params={item.Params}, Trades={item.Trades}");
+
+
+
             profitFactor = tablePF;
             performanceText = $"Impulse IQ (Optimized)\n" +
                              $"Longs PF: {tablePF:F2} WR: {longWinRate:F1}%\n" +
                              $"Shorts PF: {tablePFS:F2} WR: {shortWinRate:F1}%\n" +
                              $"Trades: L{longTrades}/S{shortTrades}\n" +
-                             $"Best: LTF={bestATRLTF:F1} HTF={bestATRHTF:F1}";
+                             $"Best: LTF={bestATRLTF:F1} HTF={bestATRHTF:F1}" + 
+                            $"BestL: LTF={bestATRLTF:F1} HTF={bestATRHTF:F1}\n" +
+                             $"BestS: LTF={bestATRshortltf:F1} HTF={bestATRshorthtf:F1}" ;
 
             // Print($"[SelectBestParameters] PF={performanceText:F2}%");
             // Print($"[SelectBestParameters] BEST LONG: PF={tablePF:F2}, Params={stringArr[bestLongsIndex]}, Trades={longTrades},lONGwiNS = {longWins} WinRate={longWinRate:F1}%");
@@ -3492,12 +3527,17 @@ namespace NinjaTrader.NinjaScript.Indicators
             zzHTF.Point = htfPoint;
             zzHTF.TimeP = htfTimeP;
 
-            // Print($"[ReplayHistory] Complete! LTF: {zzLTF.Lines.Count} lines, HTF: {zzHTF.Lines.Count} lines");
-            // Print($"[ReplayHistory] LTF Breakout Lines: {zzLTF.BreakoutLines.Count}, HTF Breakout Lines: {zzHTF.BreakoutLines.Count}");
-            // Print($"[ReplayHistory] LTF==HTF? {ltfBarsInProgress == htfBarsInProgress}, bestATRLTF={bestATRLTF:F4}, bestATRHTF={bestATRHTF:F4}, Same? {bestATRLTF == bestATRHTF}");
-            // Print($"[ReplayHistory] atrArrLTF.Count={atrArrLTF.Count}, atrArrHTF.Count={atrArrHTF.Count}, Same size? {atrArrLTF.Count == atrArrHTF.Count}");
-            // Print($"[ReplayHistory] LTF Breakout Up: {zzLTF.BreakoutPointUp:F2}, Dn: {zzLTF.BreakoutPointDn:F2}");
-            // Print($"[ReplayHistory] HTF Breakout Up: {zzHTF.BreakoutPointUp:F2}, Dn: {zzHTF.BreakoutPointDn:F2}");
+            Print($"[ReplayHistory] Complete! LTF: {zzLTF.Lines.Count} lines, HTF: {zzHTF.Lines.Count} lines");
+
+            Print($"[ReplayHistory] LTF Breakout Lines: {zzLTF.BreakoutLines.Count}, HTF Breakout Lines: {zzHTF.BreakoutLines.Count}");
+
+            Print($"[ReplayHistory] LTF==HTF? {ltfBarsInProgress == htfBarsInProgress}, bestATRLTF={bestATRLTF:F4}, bestATRHTF={bestATRHTF:F4}, Same? {bestATRLTF == bestATRHTF}");
+
+            Print($"[ReplayHistory] atrArrLTF.Count={atrArrLTF.Count}, atrArrHTF.Count={atrArrHTF.Count}, Same size? {atrArrLTF.Count == atrArrHTF.Count}");
+
+            Print($"[ReplayHistory] LTF Breakout Up: {zzLTF.BreakoutPointUp:F2}, Dn: {zzLTF.BreakoutPointDn:F2}");
+
+            Print($"[ReplayHistory] HTF Breakout Up: {zzHTF.BreakoutPointUp:F2}, Dn: {zzHTF.BreakoutPointDn:F2}");  
 
             // CRITICAL FIX: Now re-test ALL trades using ONLY the best parameters
             // This is what PineScript does - it rebuilds the ZigZag AND re-tests trades
@@ -5284,7 +5324,9 @@ namespace NinjaTrader.NinjaScript.Indicators
                 // Get replay metrics from arrays
                 double longProfit = PFprofitArr[bestLongsIndex];
                 double longLoss = PFlossArr[bestLongsIndex];
-                double longPF = longProfit > 0 ? (longLoss > 0 ? longProfit / longLoss : longProfit) : 0;
+                // double longPF = longProfit > 0 ? (longLoss > 0 ? longProfit / longLoss : longProfit) : 0;
+                double longPF = optimizationPFLong;
+
 
                 RenderTarget.DrawText("Profit Factor", textFormat,
                     new RectangleF(x + 160, yOffset, 60, lineHeight), greenBrush,
@@ -5307,8 +5349,8 @@ namespace NinjaTrader.NinjaScript.Indicators
                 // Get replay metrics from arrays
                 double shortProfit = PFprofitArrS[bestShortsIndex];
                 double shortLoss = PFlossArrS[bestShortsIndex];
-                double shortPF = shortProfit > 0 ? (shortLoss > 0 ? shortProfit / shortLoss : shortProfit) : 0;
-
+                // double shortPF = shortProfit > 0 ? (shortLoss > 0 ? shortProfit / shortLoss : shortProfit) : 0;
+                double shortPF = optimizationPFShort;
                 RenderTarget.DrawText("Profit Factor", textFormat,
                     new RectangleF(x + 160, yOffset, 60, lineHeight), redBrush,
                     DrawTextOptions.None, MeasuringMode.Natural);
