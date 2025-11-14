@@ -5083,11 +5083,26 @@ namespace NinjaTrader.NinjaScript.Indicators
             using (var style = new StrokeStyle(Core.Globals.D2DFactory,
                 new StrokeStyleProperties { DashStyle = SharpDX.Direct2D1.DashStyle.Dot }))
             {
+                // Get visible time range to filter lines
+                DateTime firstVisibleTime = chartControl.GetTimeByX(0);
+                DateTime lastVisibleTime = chartControl.GetTimeByX((int)chartControl.ActualWidth);
+
                 int linesDrawn = 0;
                 int linesSkipped = 0;
-                for (int i = 0; i < zz.Lines.Count; i++)
+
+                // Draw only recent lines (last 50) to avoid off-screen rendering
+                int startIndex = Math.Max(0, zz.Lines.Count - 50);
+
+                for (int i = startIndex; i < zz.Lines.Count; i++)
                 {
                     var line = zz.Lines[i];
+
+                    // Skip if line is completely before visible time range
+                    if (line.X2 < firstVisibleTime)
+                    {
+                        linesSkipped++;
+                        continue;
+                    }
 
                     // Get screen coordinates for the zigzag line
                     int x1 = chartControl.GetXByTime(line.X1);
@@ -5095,19 +5110,17 @@ namespace NinjaTrader.NinjaScript.Indicators
                     float y1 = chartScale.GetYByValue(line.Y1);
                     float y2 = chartScale.GetYByValue(line.Y2);
 
-                    // Debug first 3 lines to see coordinates
-                    if (i < 3 && debugDrawCounter < 5)
+                    // Debug first 3 visible lines
+                    if (linesDrawn < 3 && debugDrawCounter < 5)
                     {
                         Print($"[Projection Line #{i}] Time: {line.X1:HH:mm}→{line.X2:HH:mm}, Price: {line.Y1:F2}→{line.Y2:F2}");
-                        Print($"  Screen: X({x1},{x2}), Y({y1:F0},{y2:F0}), Valid={!(x1 < 0 && x2 < 0)}");
+                        Print($"  Screen: X({x1},{x2}), Y({y1:F0},{y2:F0}), OnScreen={x2 >= 0}");
                     }
 
-                    // Skip if coordinates are invalid (off-screen to the left)
-                    if (x1 < 0 && x2 < 0)
-                    {
-                        linesSkipped++;
-                        continue;
-                    }
+                    // Clamp x coordinates to visible area (don't skip, just clamp)
+                    int chartWidth = (int)chartControl.ActualWidth;
+                    x1 = Math.Max(-100, Math.Min(chartWidth + 100, x1)); // Allow small overflow
+                    x2 = Math.Max(-100, Math.Min(chartWidth + 100, x2));
 
                     // Draw the dotted semi-transparent projection line segment (width=3 for visibility)
                     RenderTarget.DrawLine(new Vector2(x1, y1), new Vector2(x2, y2),
@@ -5118,7 +5131,7 @@ namespace NinjaTrader.NinjaScript.Indicators
 
                 // Debug summary
                 if (debugDrawCounter < 5)
-                    Print($"[DrawProjections] Drew {linesDrawn} lines, Skipped {linesSkipped} off-screen");
+                    Print($"[DrawProjections] Drew {linesDrawn} lines, Skipped {linesSkipped} old, Total={zz.Lines.Count}");
 
               
             }
