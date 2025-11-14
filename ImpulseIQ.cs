@@ -310,6 +310,10 @@ namespace NinjaTrader.NinjaScript.Indicators
         private int bestLongsIndex = 0;       // Index of best long parameter combo
         private int bestShortsIndex = 0;      // Index of best short parameter combo
 
+        // Store optimization PF results (display these, not live trading results)
+        private double optimizationPFLong = 0;   // PF from optimization for best long params
+        private double optimizationPFShort = 0;  // PF from optimization for best short params
+
         // ============================================================================
         // ZIGZAG STATE - Enhanced with 4 separate trackers
         // ============================================================================
@@ -2834,6 +2838,10 @@ namespace NinjaTrader.NinjaScript.Indicators
             bestLongsIndex = pfLongs.IndexOf(maxPFLong);
             tablePF = maxPFLong;
 
+            // CRITICAL: Save optimization PF BEFORE resetting arrays for live trading
+            // This is what we display in the performance table
+            optimizationPFLong = maxPFLong;
+
             // Parse best long parameters
             string[] bestLongParams = stringArr[bestLongsIndex].Split('_');
             bestATRLTF = double.Parse(bestLongParams[0]);
@@ -2853,6 +2861,10 @@ namespace NinjaTrader.NinjaScript.Indicators
             double maxPFShort = pfShorts.Max();
             bestShortsIndex = pfShorts.IndexOf(maxPFShort);
             tablePFS = maxPFShort;
+
+            // CRITICAL: Save optimization PF BEFORE resetting arrays for live trading
+            // This is what we display in the performance table
+            optimizationPFShort = maxPFShort;
 
             // Parse best short parameters
             string[] bestShortParams = stringArr[bestShortsIndex].Split('_');
@@ -5365,10 +5377,10 @@ namespace NinjaTrader.NinjaScript.Indicators
                     new RectangleF(x + 10, yOffset, 150, lineHeight), greenBrush,
                     DrawTextOptions.None, MeasuringMode.Natural);
 
-                // Get replay metrics from arrays
-                double longProfit = PFprofitArr[bestLongsIndex];
-                double longLoss = PFlossArr[bestLongsIndex];
-                double longPF = longProfit > 0 ? (longLoss > 0 ? longProfit / longLoss : longProfit) : 0;
+                // CRITICAL FIX: Display OPTIMIZATION PF, not live trading PF
+                // The arrays get reset and updated during live trading, corrupting the optimization results
+                // We saved the optimization PF before resetting, so display that instead
+                double longPF = optimizationPFLong;
 
                 RenderTarget.DrawText("Profit Factor", textFormat,
                     new RectangleF(x + 160, yOffset, 60, lineHeight), greenBrush,
@@ -5388,10 +5400,10 @@ namespace NinjaTrader.NinjaScript.Indicators
                     new RectangleF(x + 10, yOffset, 150, lineHeight), redBrush,
                     DrawTextOptions.None, MeasuringMode.Natural);
 
-                // Get replay metrics from arrays
-                double shortProfit = PFprofitArrS[bestShortsIndex];
-                double shortLoss = PFlossArrS[bestShortsIndex];
-                double shortPF = shortProfit > 0 ? (shortLoss > 0 ? shortProfit / shortLoss : shortProfit) : 0;
+                // CRITICAL FIX: Display OPTIMIZATION PF, not live trading PF
+                // The arrays get reset and updated during live trading, corrupting the optimization results
+                // We saved the optimization PF before resetting, so display that instead
+                double shortPF = optimizationPFShort;
 
                 RenderTarget.DrawText("Profit Factor", textFormat,
                     new RectangleF(x + 160, yOffset, 60, lineHeight), redBrush,
