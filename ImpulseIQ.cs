@@ -709,7 +709,9 @@ namespace NinjaTrader.NinjaScript.Indicators
 
         protected override void OnBarUpdate()
         {
-            if (CurrentBar < 20) return;
+            // REMOVED: if (CurrentBar < 20) return;
+            // This was skipping the first 20 bars, causing array size mismatch with PineScript
+            // PineScript collects from bar 0, so we must too (with ATR backfill handling zeros)
 
             // IMPORTANT: Handle cases where LTF and/or HTF use different BarsInProgress indices
             // When both use the same index (e.g., both = 0 for chart timeframe), we need to update both
