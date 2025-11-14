@@ -5197,43 +5197,55 @@ namespace NinjaTrader.NinjaScript.Indicators
 
                 // FUTURE PROJECTION: Extend current zigzag trend into the future
                 // This shows where the zigzag might continue based on current direction
-                if (trained && zz.Y2Price != 0)
+                if (trained && zz.Y2Price != 0 && zz.Y1Price != 0)
                 {
-                    // Get current time and calculate future time (project 20 bars ahead)
-                    DateTime currentTime = Time[0];
-                    TimeSpan barSpan = TimeSpan.FromMinutes(5); // 5-minute bars
-                    DateTime futureTime = currentTime.AddMinutes(100); // ~20 bars ahead
+                    // Get last pivot point (Y2) as starting point
+                    double startPrice = zz.Y2Price;
 
-                    // Get current Y2 position (last pivot)
-                    double currentPrice = zz.Y2Price;
+                    // Get last zigzag line's X2 time (when the last pivot was formed)
+                    DateTime startTime;
+                    if (zz.Lines.Count > 0)
+                    {
+                        startTime = zz.Lines[zz.Lines.Count - 1].X2;
+                    }
+                    else
+                    {
+                        startTime = Time[0];
+                    }
 
-                    // Project forward following current trend
-                    // If Direction == 1 (uptrend), project upward
-                    // If Direction == -1 (downtrend), project downward
-                    double projectionSlope = (zz.Y2Price - zz.Y1Price) / 10.0; // Gentle continuation
-                    double futurePrice = currentPrice + (projectionSlope * 2); // Project 2x the last move
+                    // Get the right edge of the visible chart
+                    int chartWidth = (int)chartControl.ActualWidth;
+                    DateTime rightEdgeTime = chartControl.GetTimeByX(chartWidth - 10); // 10px from edge
+
+                    // Calculate projection slope based on last pivot move
+                    // Use a gentle slope: (Y2 - Y1) over the time it took to form
+                    double priceMove = zz.Y2Price - zz.Y1Price;
+                    double projectionSlope = priceMove * 0.3; // Project 30% of the last move
+
+                    // Calculate projected price at right edge
+                    double projectedPrice = startPrice + projectionSlope;
 
                     // Get screen coordinates
-                    int xCurrent = chartControl.GetXByTime(currentTime);
-                    int xFuture = chartControl.GetXByTime(futureTime);
-                    float yCurrent = chartScale.GetYByValue(currentPrice);
-                    float yFuture = chartScale.GetYByValue(futurePrice);
+                    int xStart = chartControl.GetXByTime(startTime);
+                    int xEnd = chartWidth - 10; // Near right edge
+                    float yStart = chartScale.GetYByValue(startPrice);
+                    float yEnd = chartScale.GetYByValue(projectedPrice);
 
-                    // Only draw if future point is on screen
-                    if (xFuture > 0 && xFuture < chartControl.ActualWidth)
+                    // Draw projection line to right edge of screen
+                    var futureColor = zz.Direction == 1 ?
+                        new SharpDX.Color(116, 255, 188, 255) :  // Bright green for uptrend
+                        new SharpDX.Color(255, 116, 116, 255);   // Bright red for downtrend
+
+                    using (var futureBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, futureColor))
                     {
-                        // Draw brighter projection line into future
-                        var futureColor = zz.Direction == 1 ?
-                            new SharpDX.Color(116, 255, 188, 255) :  // Bright green
-                            new SharpDX.Color(255, 116, 116, 255);   // Bright red
+                        // Draw thicker solid line for future projection (width=4, no dots)
+                        RenderTarget.DrawLine(new Vector2(xStart, yStart), new Vector2(xEnd, yEnd),
+                            futureBrush, 4);
 
-                        using (var futureBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, futureColor))
+                        if (debugDrawCounter < 5)
                         {
-                            RenderTarget.DrawLine(new Vector2(xCurrent, yCurrent), new Vector2(xFuture, yFuture),
-                                futureBrush, 3, style);
-
-                            if (debugDrawCounter < 5)
-                                Print($"[Future Projection] From {currentTime:HH:mm} @ {currentPrice:F2} → {futureTime:HH:mm} @ {futurePrice:F2}, Dir={zz.Direction}");
+                            Print($"[Future Projection] {(barsInProgress == 1 ? "LTF" : "HTF")} - From {startTime:HH:mm} @ {startPrice:F2} → RightEdge @ {projectedPrice:F2}");
+                            Print($"  Screen coords: X({xStart}→{xEnd}), Y({yStart:F0}→{yEnd:F0}), Dir={zz.Direction}, Slope={projectionSlope:F2}");
                         }
                     }
                 }
