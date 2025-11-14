@@ -5084,6 +5084,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                 new StrokeStyleProperties { DashStyle = SharpDX.Direct2D1.DashStyle.Dot }))
             {
                 int linesDrawn = 0;
+                int linesSkipped = 0;
                 for (int i = 0; i < zz.Lines.Count; i++)
                 {
                     var line = zz.Lines[i];
@@ -5094,11 +5095,19 @@ namespace NinjaTrader.NinjaScript.Indicators
                     float y1 = chartScale.GetYByValue(line.Y1);
                     float y2 = chartScale.GetYByValue(line.Y2);
 
-                    // Skip if coordinates are invalid (off-screen to the left)
-                    if (x1 < 0 && x2 < 0) continue;
+                    // Debug first 3 lines to see coordinates
+                    if (i < 3 && debugDrawCounter < 5)
+                    {
+                        Print($"[Projection Line #{i}] Time: {line.X1:HH:mm}→{line.X2:HH:mm}, Price: {line.Y1:F2}→{line.Y2:F2}");
+                        Print($"  Screen: X({x1},{x2}), Y({y1:F0},{y2:F0}), Valid={!(x1 < 0 && x2 < 0)}");
+                    }
 
-                    // Debug first line
-                  
+                    // Skip if coordinates are invalid (off-screen to the left)
+                    if (x1 < 0 && x2 < 0)
+                    {
+                        linesSkipped++;
+                        continue;
+                    }
 
                     // Draw the dotted semi-transparent projection line segment (width=3 for visibility)
                     RenderTarget.DrawLine(new Vector2(x1, y1), new Vector2(x2, y2),
@@ -5106,6 +5115,10 @@ namespace NinjaTrader.NinjaScript.Indicators
 
                     linesDrawn++;
                 }
+
+                // Debug summary
+                if (debugDrawCounter < 5)
+                    Print($"[DrawProjections] Drew {linesDrawn} lines, Skipped {linesSkipped} off-screen");
 
               
             }
