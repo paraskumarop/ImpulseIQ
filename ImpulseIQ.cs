@@ -2122,6 +2122,14 @@ namespace NinjaTrader.NinjaScript.Indicators
             // ========================================================================
             if (StrategyType == StrategyTypeEnum.Breakout && TradeLong && tradeLongState == 0)
             {
+                // DEBUG: Log entry conditions for 4.0_5.0 to understand why 0 trades
+                if (index == 1611 && breakoutUp > 0)
+                {
+                    Print($"[ENTRY CHECK 4.0_5.0] isHighFirst={isHighFirst2Long}, breakoutUp={breakoutUp:F2}, ltfClose={ltfClose:F2}, ltfClosePrev={ltfClosePrev:F2}");
+                    Print($"  HTF: Y1={htfY1:F2}, Y2={htfY2:F2}, Range={htfRange:F2}, MaxBreakout={htfY1 + htfRange:F2}");
+                    Print($"  Conditions: close>breakout={ltfClose > breakoutUp}, prev<=breakout={ltfClosePrev <= breakoutUp}, breakout<=maxLevel={breakoutUp <= htfY1 + htfRange}");
+                }
+
                 // FIXED: Use isHighFirst2Long instead of isUptrend to match PineScript
                 // PineScript: if isHighFirst2Long and tradeLong
                 if (isHighFirst2Long && breakoutUp > 0 &&
